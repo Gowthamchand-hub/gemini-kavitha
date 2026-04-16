@@ -244,6 +244,12 @@ GOAL
 
 Sound like a real recruiter:
 efficient, human, slightly fast, and natural.
+
+-----------------------------------
+END CALL
+-----------------------------------
+
+After saying the final goodbye ("Thank you, take care."), immediately call the end_call() function to hang up.
 """
 
 app = FastAPI(title="Exotel-Gemini Kavitha Bridge")
@@ -305,6 +311,17 @@ async def stream(exotel_ws: WebSocket):
                     "systemInstruction": {
                         "parts": [{"text": KAVITHA_SYSTEM_PROMPT}]
                     },
+                    "tools": [
+                        {
+                            "functionDeclarations": [
+                                {
+                                    "name": "end_call",
+                                    "description": "End the phone call. Call this function when the conversation is complete — after saying the final goodbye to the candidate.",
+                                    "parameters": {"type": "OBJECT", "properties": {}}
+                                }
+                            ]
+                        }
+                    ],
                     "inputAudioTranscription": {},
                     "outputAudioTranscription": {}
                 }
@@ -434,6 +451,24 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                         }))
                     except Exception:
                         break
+
+            # Handle end_call tool call
+            tool_call = data.get("toolCall", {})
+            for fn in tool_call.get("functionCalls", []):
+                if fn.get("name") == "end_call":
+                    log.info("Kavitha called end_call — hanging up")
+                    # Send tool response back to Gemini before closing
+                    await gemini_ws.send(json.dumps({
+                        "toolResponse": {
+                            "functionResponses": [{"id": fn.get("id"), "response": {"result": "ok"}}]
+                        }
+                    }))
+                    await asyncio.sleep(0.5)
+                    try:
+                        await exotel_ws.close()
+                    except Exception:
+                        pass
+                    return
 
             # Log transcripts
             input_transcript = server_content.get("inputTranscription", {})
