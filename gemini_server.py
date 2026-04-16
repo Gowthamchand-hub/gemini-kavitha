@@ -168,9 +168,10 @@ After salary, ask: "Aapke paas smartphone hai? Ya smartphone use karna aata hai?
 
 If YES → proceed to reference.
 
-If NO or unsure:
-→ "Is kaam ke liye smartphone hona zaroori hai — iske bina hum aage nahi badh sakte. Bahut shukriya. Take care."
-→ Call end_call() immediately after saying this.
+If NO:
+→ "Is kaam ke liye smartphone zaroori hai. Kya aap jald arrange kar sakti hain?"
+→ If YES, they can arrange → proceed to reference.
+→ If NO, they cannot arrange at all → "Theek hai, smartphone ke bina aage badhna mushkil hoga. Bahut shukriya aapka time dene ke liye. Take care." → call end_call().
 
 -----------------------------------
 TIMING — FULL DAY ONLY
