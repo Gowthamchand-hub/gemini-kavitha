@@ -467,8 +467,19 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                     log.info(f"Candidate: {''.join(candidate_buf)}")
                     candidate_buf.clear()
                 if kavitha_buf:
-                    log.info(f"Kavitha: {''.join(kavitha_buf)}")
+                    full_text = ''.join(kavitha_buf)
+                    log.info(f"Kavitha: {full_text}")
                     kavitha_buf.clear()
+                    # Fallback: end call if goodbye phrase detected
+                    goodbye_phrases = ["take care", "thank you, take care", "contact karegi", "hamari team jald"]
+                    if any(p in full_text.lower() for p in goodbye_phrases):
+                        log.info("Goodbye detected — ending call")
+                        await asyncio.sleep(1)
+                        try:
+                            await exotel_ws.close()
+                        except Exception:
+                            pass
+                        return
                 first_response = True  # reset for next turn
 
     except websockets.exceptions.ConnectionClosedOK:
