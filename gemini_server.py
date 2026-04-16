@@ -412,10 +412,7 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 inline_data = part.get("inlineData", {})
                 mime = inline_data.get("mimeType", "")
                 if mime.startswith("audio/"):
-                    if first_response and candidate_stopped_ts[0] > 0:
-                        latency_ms = (time.time() - candidate_stopped_ts[0]) * 1000
-                        log.info(f"⚡ Real Latency: {latency_ms:.0f}ms")
-                        first_response = False
+                    first_response = False
                     audio_b64 = inline_data["data"]
                     raw_audio = base64.b64decode(audio_b64)
 
