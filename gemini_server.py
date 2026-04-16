@@ -324,8 +324,9 @@ async def stream(exotel_ws: WebSocket):
             }))
 
             stream_sid_holder = []
-            last_audio_ts = [0.0]  # timestamp of last candidate audio sent to Gemini
-            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts))
+            last_audio_ts = [0.0]
+            resample_state = [None]
+            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, resample_state))
             task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts))
 
             done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
@@ -350,7 +351,7 @@ async def stream(exotel_ws: WebSocket):
         log.info("Stream session ended")
 
 
-async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list):
+async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, resample_state: list):
     """Candidate's voice -> Gemini."""
     try:
         async for raw in exotel_ws.iter_text():
@@ -369,15 +370,15 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
             elif event == "media":
                 audio_b64 = data["media"]["payload"]
                 last_audio_ts[0] = time.time()
-                # Exotel Voicebot sends mulaw 8kHz — convert to linear PCM for Gemini
-                mulaw_bytes = base64.b64decode(audio_b64)
-                pcm_bytes = audioop.ulaw2lin(mulaw_bytes, 2)
-                pcm_b64 = base64.b64encode(pcm_bytes).decode()
+                # Resample 8kHz -> 16kHz (Gemini's preferred rate) — same as working ElevenLabs bridge
+                raw_audio = base64.b64decode(audio_b64)
+                raw_audio, resample_state[0] = audioop.ratecv(raw_audio, 2, 1, 8000, 16000, resample_state[0])
+                pcm_b64 = base64.b64encode(raw_audio).decode()
                 await gemini_ws.send(json.dumps({
                     "realtimeInput": {
                         "audio": {
                             "data": pcm_b64,
-                            "mimeType": "audio/pcm;rate=8000"
+                            "mimeType": "audio/pcm;rate=16000"
                         }
                     }
                 }))
