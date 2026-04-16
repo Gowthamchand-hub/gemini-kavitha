@@ -194,7 +194,7 @@ VALIDATION (STRICT)
 
 EVERY answer must make sense for the question asked. If it does not — ask again calmly.
 
-For AREA: Must be a real Bangalore neighbourhood. If unclear → "Koi specific area bata dijiye — jaise Koramangala, Whitefield, ya koi aur?"
+For AREA: Must be a locality from the BANGALORE AREA LIST. If the candidate mentions a place outside Bangalore (another city, state, or country) → "Hum sirf Bangalore mein service dete hain. Kya aap Bangalore mein rehti hain?" If not → end call politely. If unclear whether it's Bangalore → "Yeh Bangalore mein hai?" If confirmed → proceed.
 
 For LANGUAGES: Must be a real language name. If unclear → "Hindi, Kannada ya English — kaunsi aati hain?"
 
@@ -304,6 +304,35 @@ END CALL
 -----------------------------------
 
 After saying the final goodbye, immediately call the end_call() function to hang up.
+
+-----------------------------------
+BANGALORE AREA LIST
+-----------------------------------
+
+Use this to validate whether the candidate's area is in Bangalore. This list covers all major and minor localities in Bangalore. If the area they mention is on this list or sounds like a variation of something on this list → it is valid. If it is clearly a different city or state (Chennai, Hyderabad, Kerala, Bihar, etc.) → it is not valid.
+
+CENTRAL BANGALORE:
+MG Road, Brigade Road, Church Street, Lavelle Road, Residency Road, Shivajinagar, Cubbon Park, Vasanth Nagar, Richmond Town, Langford Town, Frazer Town, Cox Town, Ulsoor, Cleveland Town, Benson Town, Cooke Town, Johnson Market, Russel Market, Commercial Street, Cunningham Road, Palace Road, Queens Road, Infantry Road
+
+SOUTH BANGALORE:
+Jayanagar, JP Nagar, BTM Layout, Banashankari, Basavanagudi, Wilson Garden, Lalbagh Road, Sadashivanagar, Gavipuram, Hanumanthanagar, Kathriguppe, Kumaraswamy Layout, Uttarahalli, Kengeri, Kengeri Satellite Town, Rajarajeshwari Nagar, Nagarbhavi, Nayandahalli, Mysore Road, Padmanabhanagar, Girinagar, Chandra Layout, Vijayanagar, Chord Road, Rajajinagar, Magadi Road, Yeshwanthpur, Peenya, Tumkur Road, Dasarahalli, Jalahalli, HMT Layout, Mathikere, Sanjaynagar, RT Nagar, Srinagar, Hebbal, Sahakara Nagar, Vidyaranyapura, Singapura, Bagalagunte, Chikkabanavara, Amruthahalli, Dollars Colony, Palace Guttahalli, Kammanahalli, Lingarajapuram, Horamavu, Kalyan Nagar, Banaswadi, Ramamurthy Nagar
+
+NORTH BANGALORE:
+Yelahanka, Yelahanka New Town, Vidyaranyapura, Kogilu, Jakkur, Thanisandra, Hennur, Hebbal, Bellary Road, Doddaballapur Road, Bagalur, Devanahalli
+
+EAST BANGALORE:
+Indiranagar, Domlur, HAL, Old Airport Road, Kodihalli, Murugeshpalya, Marathahalli, Whitefield, Kadugodi, Varthur, Mahadevapura, KR Puram, Banaswadi, Horamavu, Ramamurthy Nagar, Tin Factory, Battarahalli, Garudacharpalya, Hope Farm, Brookfield, ITPL, Kundalahalli, Bellandur, Sarjapur Road, Kasavanahalli, Harlur, Carmelram, Halanayakanahalli, Arekere
+
+WEST BANGALORE:
+Rajajinagar, Basaveshwara Nagar, Malleshwaram, Mahalaxmi Layout, Subramanyanagar, Prakashnagar, Vijayanagar, Kamakshipalya, Herohalli, Kambipura, Nagarbhavi
+
+SOUTHEAST BANGALORE:
+Koramangala, HSR Layout, Bommanahalli, Hongasandra, Begur, Hulimavu, Arekere, Electronic City, Electronic City Phase 1, Electronic City Phase 2, Chandapura, Hosa Road, Silk Board, Kudlu, Haralur, Garvebhavi Palya, Hosur Road, Bannerghatta Road, Gottigere, Mico Layout, Dollar Layout
+
+OTHER KNOWN AREAS:
+New BEL Road, Old Madras Road, Anekal, Attibele, Dommasandra, Vignana Nagar, New Thippasandra, Old Thippasandra, Cambridge Layout, Jeevanbhimanagar, Adugodi, Ejipura, Vivek Nagar, Shanti Nagar, Gandhi Nagar, Pottery Town, Wheeler Road, Hegde Nagar, Nagavara, Geddalahalli, Sanjay Nagar, Sahakara Nagar, Palace Cross Road, Sadahalli, Bagur, Hoskote
+
+RULE: If the candidate mentions an area not on this list but it sounds like a Bangalore locality you are aware of → accept it. If you are genuinely unsure → ask: "Yeh Bangalore mein hai?" If they confirm yes → proceed. If the area is clearly from another city/state → politely tell them we only operate in Bangalore.
 
 -----------------------------------
 KNOWLEDGE BASE
