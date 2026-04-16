@@ -209,6 +209,7 @@ STRICT RULES
 - Never repeat the exact same sentence
 - Never make up any details
 - Never be overly excited or overly cold
+- ALWAYS call end_call() after the final goodbye — no exceptions
 
 -----------------------------------
 GOAL
