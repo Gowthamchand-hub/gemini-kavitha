@@ -413,6 +413,9 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
 
 async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list):
     """Kavitha's voice (Gemini) -> candidate."""
+    kavitha_buf = []
+    candidate_buf = []
+
     try:
         async for raw in gemini_ws:
             data = json.loads(raw)
@@ -457,7 +460,6 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             for fn in tool_call.get("functionCalls", []):
                 if fn.get("name") == "end_call":
                     log.info("Kavitha called end_call — hanging up")
-                    # Send tool response back to Gemini before closing
                     await gemini_ws.send(json.dumps({
                         "toolResponse": {
                             "functionResponses": [{"id": fn.get("id"), "response": {"result": "ok"}}]
@@ -470,14 +472,22 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                         pass
                     return
 
-            # Log transcripts
+            # Buffer transcripts, log only when turn is complete
             input_transcript = server_content.get("inputTranscription", {})
             if input_transcript.get("text"):
-                log.info(f"Candidate: {input_transcript['text']}")
+                candidate_buf.append(input_transcript["text"])
 
             output_transcript = server_content.get("outputTranscription", {})
             if output_transcript.get("text"):
-                log.info(f"Kavitha: {output_transcript['text']}")
+                kavitha_buf.append(output_transcript["text"])
+
+            if server_content.get("turnComplete"):
+                if candidate_buf:
+                    log.info(f"Candidate: {''.join(candidate_buf)}")
+                    candidate_buf.clear()
+                if kavitha_buf:
+                    log.info(f"Kavitha: {''.join(kavitha_buf)}")
+                    kavitha_buf.clear()
 
     except websockets.exceptions.ConnectionClosedOK:
         log.info("Gemini reader closed")
