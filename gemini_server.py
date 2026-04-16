@@ -449,7 +449,7 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
 
                     # Subtle line noise
                     samples = list(struct.unpack(f"{len(raw_audio)//2}h", raw_audio))
-                    noise_level = 150
+                    noise_level = 60
                     noise = []
                     for i in range(0, len(samples), 8):
                         n = random.randint(-noise_level, noise_level)
