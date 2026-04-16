@@ -352,7 +352,6 @@ IF CANDIDATE SAYS THEY DIDN'T APPLY:
 - Do NOT argue. Just proceed naturally.
 
 """
-"""
 
 app = FastAPI(title="Exotel-Gemini Kavitha Bridge")
 
