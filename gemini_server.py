@@ -276,7 +276,7 @@ async def stream(exotel_ws: WebSocket):
                         "speechConfig": {
                             "voiceConfig": {
                                 "prebuiltVoiceConfig": {
-                                    "voiceName": "Leda"
+                                    "voiceName": "Callirrhoe"
                                 }
                             }
                         }
