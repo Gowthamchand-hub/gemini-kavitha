@@ -352,12 +352,8 @@ async def stream(exotel_ws: WebSocket):
 
 async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list):
     """Candidate's voice -> Gemini."""
-    msg_count = 0
     try:
         async for raw in exotel_ws.iter_text():
-            msg_count += 1
-            if msg_count <= 5:
-                log.info(f"[DEBUG] Exotel msg #{msg_count}: {str(raw)[:200]}")
             data = json.loads(raw)
             event = data.get("event")
 
@@ -373,11 +369,14 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
             elif event == "media":
                 audio_b64 = data["media"]["payload"]
                 last_audio_ts[0] = time.time()
-                # Send raw audio directly to Gemini
+                # Exotel Voicebot sends mulaw 8kHz — convert to linear PCM for Gemini
+                mulaw_bytes = base64.b64decode(audio_b64)
+                pcm_bytes = audioop.ulaw2lin(mulaw_bytes, 2)
+                pcm_b64 = base64.b64encode(pcm_bytes).decode()
                 await gemini_ws.send(json.dumps({
                     "realtimeInput": {
                         "audio": {
-                            "data": audio_b64,
+                            "data": pcm_b64,
                             "mimeType": "audio/pcm;rate=8000"
                         }
                     }
