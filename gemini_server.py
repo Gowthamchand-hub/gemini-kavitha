@@ -342,8 +342,12 @@ async def stream(exotel_ws: WebSocket):
 
 async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list):
     """Candidate's voice -> Gemini."""
+    msg_count = 0
     try:
         async for raw in exotel_ws.iter_text():
+            msg_count += 1
+            if msg_count <= 5:
+                log.info(f"[DEBUG] Exotel msg #{msg_count}: {str(raw)[:200]}")
             data = json.loads(raw)
             event = data.get("event")
 
