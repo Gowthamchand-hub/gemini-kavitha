@@ -363,14 +363,11 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
             elif event == "media":
                 audio_b64 = data["media"]["payload"]
                 last_audio_ts[0] = time.time()
-                # Exotel Voicebot sends mulaw 8kHz — convert to PCM for Gemini
-                mulaw_audio = base64.b64decode(audio_b64)
-                pcm_audio = audioop.ulaw2lin(mulaw_audio, 2)
-                pcm_b64 = base64.b64encode(pcm_audio).decode()
+                # Send raw audio directly to Gemini
                 await gemini_ws.send(json.dumps({
                     "realtimeInput": {
                         "audio": {
-                            "data": pcm_b64,
+                            "data": audio_b64,
                             "mimeType": "audio/pcm;rate=8000"
                         }
                     }
