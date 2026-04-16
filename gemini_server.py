@@ -18,6 +18,7 @@ import asyncio
 import logging
 import audioop
 import struct
+import time
 import random
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response, JSONResponse
@@ -313,8 +314,9 @@ async def stream(exotel_ws: WebSocket):
             }))
 
             stream_sid_holder = []
-            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder))
-            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder))
+            last_audio_ts = [0.0]  # timestamp of last candidate audio sent to Gemini
+            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts))
+            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts))
 
             done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -338,7 +340,7 @@ async def stream(exotel_ws: WebSocket):
         log.info("Stream session ended")
 
 
-async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list):
+async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list):
     """Candidate's voice -> Gemini."""
     try:
         async for raw in exotel_ws.iter_text():
@@ -356,6 +358,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
 
             elif event == "media":
                 audio_b64 = data["media"]["payload"]
+                last_audio_ts[0] = time.time()
                 # Exotel sends 8kHz PCM — Gemini Live accepts it directly
                 await gemini_ws.send(json.dumps({
                     "realtimeInput": {
@@ -384,10 +387,11 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
         log.error(f"Exotel→Gemini error: {e}")
 
 
-async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list):
+async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list):
     """Kavitha's voice (Gemini) -> candidate."""
     kavitha_buf = []
     candidate_buf = []
+    first_response = True
 
     try:
         async for raw in gemini_ws:
@@ -401,6 +405,10 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 inline_data = part.get("inlineData", {})
                 mime = inline_data.get("mimeType", "")
                 if mime.startswith("audio/"):
+                    if first_response and last_audio_ts[0] > 0:
+                        latency_ms = (time.time() - last_audio_ts[0]) * 1000
+                        log.info(f"⚡ Latency: {latency_ms:.0f}ms")
+                        first_response = False
                     audio_b64 = inline_data["data"]
                     raw_audio = base64.b64decode(audio_b64)
 
@@ -461,6 +469,7 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 if kavitha_buf:
                     log.info(f"Kavitha: {''.join(kavitha_buf)}")
                     kavitha_buf.clear()
+                first_response = True  # reset for next turn
 
     except websockets.exceptions.ConnectionClosedOK:
         log.info("Gemini reader closed")
