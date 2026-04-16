@@ -306,6 +306,12 @@ async def stream(exotel_ws: WebSocket):
                             }
                         }
                     },
+                    "realtimeInputConfig": {
+                        "voiceActivityDetection": {
+                            "startOfSpeechSensitivity": "START_SENSITIVITY_LOW",
+                            "endOfSpeechSensitivity": "END_SENSITIVITY_LOW"
+                        }
+                    },
                     "systemInstruction": {
                         "parts": [{"text": KAVITHA_SYSTEM_PROMPT}]
                     },
