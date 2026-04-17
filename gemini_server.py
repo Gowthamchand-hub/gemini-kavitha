@@ -539,8 +539,7 @@ async def stream(exotel_ws: WebSocket):
                     "realtimeInputConfig": {
                         "automaticActivityDetection": {
                             "startOfSpeechSensitivity": "START_SENSITIVITY_LOW",
-                            "endOfSpeechSensitivity": "END_SENSITIVITY_LOW",
-                            "silenceDurationMs": 800
+                            "endOfSpeechSensitivity": "END_SENSITIVITY_LOW"
                         }
                     },
                     "systemInstruction": {
