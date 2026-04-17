@@ -194,6 +194,7 @@ Collect in order — ONE question at a time:
 Do NOT skip any step
 Do NOT go back
 Do NOT move forward without a clear answer
+After each answer is collected → immediately call record_answer(field, value) before asking the next question
 
 -----------------------------------
 QUESTION STYLE
@@ -554,6 +555,18 @@ async def stream(exotel_ws: WebSocket):
                                     "parameters": {"type": "OBJECT", "properties": {}}
                                 },
                                 {
+                                    "name": "record_answer",
+                                    "description": "Record a single collected answer. Call this immediately after each question is answered.",
+                                    "parameters": {
+                                        "type": "OBJECT",
+                                        "properties": {
+                                            "field": {"type": "STRING", "description": "Field name: name, area, experience, languages, age_group, timing, salary, smartphone, reference_name, reference_number"},
+                                            "value": {"type": "STRING", "description": "The collected value"}
+                                        },
+                                        "required": ["field", "value"]
+                                    }
+                                },
+                                {
                                     "name": "save_candidate",
                                     "description": "Save the candidate's screening details to the database. Call this after collecting all details, before saying goodbye.",
                                     "parameters": {
@@ -596,9 +609,11 @@ async def stream(exotel_ws: WebSocket):
             stream_sid_holder = []
             last_audio_ts = [0.0]
             resample_state = [None]
-            kavitha_turn_start = [0.0]  # timestamp when Kavitha started speaking current turn
+            kavitha_turn_start = [0.0]
+            session_data = [{}]       # incremental candidate data collected during call
+            call_completed = [False]  # True if save_candidate was called (full completion)
             task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, resample_state, kavitha_turn_start))
-            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, kavitha_turn_start))
+            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, kavitha_turn_start, session_data, call_completed))
 
             done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -607,6 +622,12 @@ async def stream(exotel_ws: WebSocket):
                     await task
                 except asyncio.CancelledError:
                     pass
+
+            # Save partial data if call ended without completing all questions
+            if not call_completed[0] and session_data[0]:
+                partial = dict(session_data[0])
+                partial["status"] = "Incomplete"
+                await save_to_sheet(partial)
             try:
                 await gemini_ws.close()
             except Exception:
@@ -679,7 +700,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
         log.error(f"Exotel→Gemini error: {e}")
 
 
-async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, kavitha_turn_start: list):
+async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, kavitha_turn_start: list, session_data: list, call_completed: list):
     """Kavitha's voice (Gemini) -> candidate."""
     kavitha_buf = []
     candidate_buf = []
@@ -731,8 +752,23 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             # Handle tool calls
             tool_call = data.get("toolCall", {})
             for fn in tool_call.get("functionCalls", []):
+                if fn.get("name") == "record_answer":
+                    args = fn.get("args", {})
+                    field = args.get("field", "")
+                    value = args.get("value", "")
+                    if field:
+                        session_data[0][field] = value
+                        log.info(f"Recorded: {field} = {value}")
+                    await gemini_ws.send(json.dumps({
+                        "toolResponse": {
+                            "functionResponses": [{"id": fn.get("id"), "response": {"result": "recorded"}}]
+                        }
+                    }))
+
                 if fn.get("name") == "save_candidate":
                     args = fn.get("args", {})
+                    args["status"] = "Completed"
+                    call_completed[0] = True
                     log.info(f"Saving candidate: {args.get('name', 'Unknown')}")
                     await save_to_sheet(args)
                     await gemini_ws.send(json.dumps({
