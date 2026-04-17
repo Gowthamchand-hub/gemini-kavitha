@@ -194,7 +194,7 @@ Collect in order — ONE question at a time:
 Do NOT skip any step
 Do NOT go back
 Do NOT move forward without a clear answer
-After each answer is collected → immediately call record_answer(field, value) before asking the next question
+After collecting all answers, call save_candidate with all the data before saying goodbye.
 
 -----------------------------------
 QUESTION STYLE
@@ -554,18 +554,6 @@ async def stream(exotel_ws: WebSocket):
                                     "parameters": {"type": "OBJECT", "properties": {}}
                                 },
                                 {
-                                    "name": "record_answer",
-                                    "description": "Record a single collected answer. Call this immediately after each question is answered.",
-                                    "parameters": {
-                                        "type": "OBJECT",
-                                        "properties": {
-                                            "field": {"type": "STRING", "description": "Field name: name, area, experience, languages, age_group, timing, salary, smartphone, reference_name, reference_number"},
-                                            "value": {"type": "STRING", "description": "The collected value"}
-                                        },
-                                        "required": ["field", "value"]
-                                    }
-                                },
-                                {
                                     "name": "save_candidate",
                                     "description": "Save the candidate's screening details to the database. Call this after collecting all details, before saying goodbye.",
                                     "parameters": {
@@ -757,22 +745,10 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             # Handle tool calls
             tool_call = data.get("toolCall", {})
             for fn in tool_call.get("functionCalls", []):
-                if fn.get("name") == "record_answer":
-                    args = fn.get("args", {})
-                    field = args.get("field", "")
-                    value = args.get("value", "")
-                    if field:
-                        session_data[0][field] = value
-                        log.info(f"Recorded: {field} = {value}")
-                    await gemini_ws.send(json.dumps({
-                        "toolResponse": {
-                            "functionResponses": [{"id": fn.get("id"), "response": {"result": "recorded"}}]
-                        }
-                    }))
-
                 if fn.get("name") == "save_candidate" and not call_completed[0]:
                     args = fn.get("args", {})
                     args["status"] = "Completed"
+                    session_data[0].update(args)
                     call_completed[0] = True
                     log.info(f"Saving candidate: {args.get('name', 'Unknown')}")
                     await save_to_sheet(args)
