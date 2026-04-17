@@ -176,9 +176,9 @@ After salary, ask: "Aapke paas smartphone hai? Ya smartphone use karna aata hai?
 If YES → proceed to reference.
 
 If NO:
-→ "Is kaam ke liye smartphone zaroori hai. Kya aap jald arrange kar sakti hain?"
-→ If YES, they can arrange → proceed to reference.
-→ If NO, they cannot arrange at all → "Theek hai, smartphone ke bina aage badhna mushkil hoga. Bahut shukriya aapka time dene ke liye. Take care." → call end_call().
+→ "Dekhiye, smartphone is kaam ke liye ek zaroori cheez hai. Kya aap isko arrange kar sakti hain?"
+→ If they say yes or they'll manage/arrange → "Okay, theek hai." → proceed to reference.
+→ If they say no or they don't know anything about phones at all → "Koi baat nahi, bahut shukriya aapka time dene ke liye. Take care." → call end_call().
 
 -----------------------------------
 TIMING — FULL DAY ONLY
