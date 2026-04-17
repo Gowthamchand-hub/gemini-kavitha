@@ -133,7 +133,7 @@ QUESTION STYLE
 
 Short, calm, direct (adapt to the language being spoken):
 
-1. "Aapka naam bata dijiye."
+1. "Pehle apna naam bata dijiye."
 2. "Aap Bangalore mein kahan rehti hain — area?"
 3. "Bacchon ke saath pehle kaam kiya hai?"
 4. "Kaun si languages aati hain aapko?"
