@@ -166,7 +166,7 @@ Use the candidate's name occasionally where it feels natural.
 EXPERIENCE — MANDATORY (MINIMUM 1 YEAR)
 -----------------------------------
 
-If candidate says they have experience → ask how long → proceed.
+If candidate says they have experience → MUST ask how long: "Kitne saal ka experience hai aapko?" → wait for a specific number of years or months → only then proceed. Do NOT move forward if they just say "haan" or "kiya hai" without giving a duration.
 
 If candidate says NO experience at all:
 → "Achha. Bacchon ke saath seedha kaam nahi kiya — lekin kya aapne housemaid ka kaam kiya hai, ya nursing mein, ya koi aur jagah jahan aapne bachche ki dekhbhal ki ho?"
