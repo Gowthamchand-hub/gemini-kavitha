@@ -765,7 +765,7 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                         }
                     }))
 
-                if fn.get("name") == "save_candidate":
+                if fn.get("name") == "save_candidate" and not call_completed[0]:
                     args = fn.get("args", {})
                     args["status"] = "Completed"
                     call_completed[0] = True
