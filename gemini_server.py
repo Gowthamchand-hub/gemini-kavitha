@@ -54,7 +54,11 @@ def get_sheet():
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
-        sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+        spreadsheet = client.open_by_key(SHEET_ID)
+        try:
+            sheet = spreadsheet.worksheet(SHEET_NAME)
+        except gspread.exceptions.WorksheetNotFound:
+            sheet = spreadsheet.sheet1  # fallback to first tab
         return sheet
     except Exception as e:
         log.error(f"Google Sheets init error: {e}")
