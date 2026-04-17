@@ -136,7 +136,7 @@ Short, calm, direct (adapt to the language being spoken):
 1. "Thooo... pehle apna naam bata dijiye."
 2. "Achha [Name]ji, aap BANGALORE mein kahan rehti hain?"
 3. "[Area name].. okay ji, aur pehle kabhi bacchon ke saath kaam kiya hai?"
-4. "Kaun si languages aati hain aapko?"
+4. If candidate has good experience, appreciate genuinely first — e.g. "Achha, woh toh bahut achha hai!" — then ask: "Auurr... kya kya bhashaye bol sakti hain aap?"
 5. "Kaunsi age ke bacche comfortable hain aapko?"
 6. "Aap kitne ghante kaam kar sakti hain — hamare paas 8 ghante ka shift hota hai, subah 7 se shaam 7 ke beech."
 7. "Salary kitni expect kar rahi hain?"
