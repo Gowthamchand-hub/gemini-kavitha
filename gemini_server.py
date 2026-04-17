@@ -20,10 +20,13 @@ import audioop
 import struct
 import time
 import random
+from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response, JSONResponse
 from dotenv import load_dotenv
 import websockets
+import gspread
+from google.oauth2.service_account import Credentials
 
 load_dotenv(override=True)
 
@@ -32,6 +35,69 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Google Sheets setup
+# ---------------------------------------------------------------------------
+
+SHEET_ID = "112yETKsk2aaM6knc5Bk8ZUFd-IHK0bD_puMOKrDz7XQ"
+SHEET_NAME = "gemini-kavitha-sheets"
+SHEET_HEADERS = ["Timestamp", "Name", "Area", "Experience", "Languages", "Age Group", "Timing", "Salary", "Smartphone", "Reference Name", "Reference Number", "Status"]
+
+def get_sheet():
+    creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    if not creds_json:
+        log.warning("GOOGLE_CREDENTIALS_JSON not set — Sheets logging disabled")
+        return None
+    try:
+        creds_dict = json.loads(creds_json)
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+        return sheet
+    except Exception as e:
+        log.error(f"Google Sheets init error: {e}")
+        return None
+
+def ensure_headers(sheet):
+    try:
+        first_row = sheet.row_values(1)
+        if first_row != SHEET_HEADERS:
+            sheet.insert_row(SHEET_HEADERS, 1)
+    except Exception as e:
+        log.error(f"Header check error: {e}")
+
+async def save_to_sheet(data: dict):
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _save_to_sheet_sync, data)
+    except Exception as e:
+        log.error(f"save_to_sheet error: {e}")
+
+def _save_to_sheet_sync(data: dict):
+    sheet = get_sheet()
+    if not sheet:
+        return
+    ensure_headers(sheet)
+    row = [
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        data.get("name", ""),
+        data.get("area", ""),
+        data.get("experience", ""),
+        data.get("languages", ""),
+        data.get("age_group", ""),
+        data.get("timing", ""),
+        data.get("salary", ""),
+        data.get("smartphone", ""),
+        data.get("reference_name", ""),
+        data.get("reference_number", ""),
+        data.get("status", "Completed"),
+    ]
+    sheet.append_row(row)
+    log.info(f"Saved to sheet: {data.get('name', 'Unknown')}")
+
+# ---------------------------------------------------------------------------
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL   = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-live-preview")
@@ -295,9 +361,13 @@ After all 9 details:
 Step 1 — Ask: "Theek hai [Name]ji, saari details mil gayi hain. Koi sawaal hai?"
 Step 2 — Wait for candidate to respond.
 Step 3 — If they ask a question → answer it properly and clearly (use the knowledge base). Then ask: "Aur koi sawaal hai, ya main call end kar sakti hoon?"
-Step 4 — Keep answering questions until they have no more. Only when they confirm no more questions → SAY the goodbye out loud:
+Step 4 — Keep answering questions until they have no more.
+Step 5 — Call save_candidate() with all collected details — name, area, experience, languages (with proficiency), age_group, timing, salary, smartphone, reference_name (if given), reference_number.
+Step 6 — SAY the goodbye out loud:
 "Theek hai. Hamari team jald aapse contact karegi. Thank you, take care [Name]ji."
-Step 5 — ONLY AFTER saying the goodbye, call end_call().
+Step 7 — ONLY AFTER saying the goodbye, call end_call().
+
+IMPORTANT: Always call save_candidate() before end_call(). Never skip it.
 
 IMPORTANT: Never call end_call() before completing Step 3. The candidate must hear the goodbye.
 
@@ -476,8 +546,28 @@ async def stream(exotel_ws: WebSocket):
                             "functionDeclarations": [
                                 {
                                     "name": "end_call",
-                                    "description": "End the phone call. Call this function when the conversation is complete — after saying the final goodbye to the candidate.",
+                                    "description": "End the phone call. Call this function after saying the final goodbye to the candidate.",
                                     "parameters": {"type": "OBJECT", "properties": {}}
+                                },
+                                {
+                                    "name": "save_candidate",
+                                    "description": "Save the candidate's screening details to the database. Call this after collecting all details, before saying goodbye.",
+                                    "parameters": {
+                                        "type": "OBJECT",
+                                        "properties": {
+                                            "name":             {"type": "STRING", "description": "Candidate's full name"},
+                                            "area":             {"type": "STRING", "description": "Area in Bangalore"},
+                                            "experience":       {"type": "STRING", "description": "Years of experience and where"},
+                                            "languages":        {"type": "STRING", "description": "Languages with assessed proficiency, e.g. Hindi - Expert, English - Intermediate"},
+                                            "age_group":        {"type": "STRING", "description": "Preferred child age group"},
+                                            "timing":           {"type": "STRING", "description": "Working hours candidate mentioned"},
+                                            "salary":           {"type": "STRING", "description": "Salary expectation"},
+                                            "smartphone":       {"type": "STRING", "description": "Yes or Can Arrange"},
+                                            "reference_name":   {"type": "STRING", "description": "Reference person name (optional)"},
+                                            "reference_number": {"type": "STRING", "description": "Reference contact number"}
+                                        },
+                                        "required": ["name", "area", "experience", "languages", "age_group", "timing", "salary", "smartphone", "reference_number"]
+                                    }
                                 }
                             ]
                         }
@@ -634,9 +724,19 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                     except Exception:
                         break
 
-            # Handle end_call tool call
+            # Handle tool calls
             tool_call = data.get("toolCall", {})
             for fn in tool_call.get("functionCalls", []):
+                if fn.get("name") == "save_candidate":
+                    args = fn.get("args", {})
+                    log.info(f"Saving candidate: {args.get('name', 'Unknown')}")
+                    await save_to_sheet(args)
+                    await gemini_ws.send(json.dumps({
+                        "toolResponse": {
+                            "functionResponses": [{"id": fn.get("id"), "response": {"result": "saved"}}]
+                        }
+                    }))
+
                 if fn.get("name") == "end_call":
                     log.info("Kavitha called end_call — hanging up")
                     await gemini_ws.send(json.dumps({
