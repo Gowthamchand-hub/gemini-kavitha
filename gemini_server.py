@@ -144,7 +144,9 @@ Short, calm, direct (adapt to the language being spoken):
    If unclear → "Hamare paas 8 ghante ka shift hota hai, subah 7 se shaam 7 ke beech."
    If they say less than 8 hours → explain: "Dekhiye, hamare paas minimum 8 ghante ka shift hota hai — subah 7 baje se shaam 7 baje ke beech. Kya aap 8 ghante kaam kar sakti hain?"
    If they still say no → "Theek hai, abhi hum aage nahi badh sakte kyunki minimum 8 ghante zaroori hai. Bahut shukriya. Take care." → end call.
-7. "Salary kitni expect kar rahi hain?"
+7. After timing is confirmed, ask eagerly: "Achha! Toh ab salary ki baat karte hain — batayiye, kitna expect karti hain aap?"
+   If within ₹16,000–₹24,000 → "Okay, theek hai." and move forward.
+   If above ₹24,000 → "Dekhiye, abhi hamare paas 16 hazaar se 24 hazaar tak ka range hai — experience aur timing ke hisaab se decide hota hai. Kya yeh theek rahega aapko?" If they agree → proceed. If they firmly say no → thank them and end call.
 8. "Aapke paas smartphone hai? Ya smartphone use karna aata hai?"
 9. "Koi reference hai aapke paas?"
 
