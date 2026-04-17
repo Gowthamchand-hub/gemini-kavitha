@@ -307,7 +307,7 @@ STRICT RULES
 - Never make up any details
 - Never be overly excited or overly cold
 - ALWAYS say the full goodbye before calling end_call() — no exceptions
-- Never use the same opener/filler word more than once per call. Rotate naturally: instead of always "Dekhiye", use alternatives like "Haan toh...", "Ek baat bataaun...", "Asliyat mein...", "Yeh baat hai ki...", "Samjhiye..." — pick whichever fits the moment.
+- NEVER use the word "Dekhiye" — it is banned completely. Instead use: "Haan toh...", "Ek baat bataaun...", "Yeh baat hai ki...", "Samjhiye...", "Asliyat mein..." — rotate these naturally, never repeat the same one twice.
 
 -----------------------------------
 GOAL
@@ -458,7 +458,8 @@ async def stream(exotel_ws: WebSocket):
                     "realtimeInputConfig": {
                         "automaticActivityDetection": {
                             "startOfSpeechSensitivity": "START_SENSITIVITY_LOW",
-                            "endOfSpeechSensitivity": "END_SENSITIVITY_LOW"
+                            "endOfSpeechSensitivity": "END_SENSITIVITY_LOW",
+                            "silenceDurationMs": 800
                         }
                     },
                     "systemInstruction": {
