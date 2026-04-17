@@ -643,10 +643,10 @@ async def stream(exotel_ws: WebSocket):
         log.info("Stream session ended")
 
 
-BARGE_IN_PROTECT_SECS = 4.0  # block candidate audio for this long after Kavitha starts speaking
-
 async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, resample_state: list, kavitha_turn_start: list):
     """Candidate's voice -> Gemini."""
+    audio_buf = []  # buffer candidate audio while Kavitha is speaking
+
     try:
         async for raw in exotel_ws.iter_text():
             data = json.loads(raw)
@@ -662,25 +662,31 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                 log.info(f"Stream started — callSid: {info.get('call_sid')}, streamSid: {stream_sid}")
 
             elif event == "media":
-                # Block candidate audio for first N seconds after Kavitha starts speaking
-                # This prevents backchannels from interrupting mid-sentence
-                if kavitha_turn_start[0] > 0 and (time.time() - kavitha_turn_start[0]) < BARGE_IN_PROTECT_SECS:
-                    continue
-
                 audio_b64 = data["media"]["payload"]
                 last_audio_ts[0] = time.time()
-                # Resample 8kHz -> 16kHz (Gemini's preferred rate) — same as working ElevenLabs bridge
                 raw_audio = base64.b64decode(audio_b64)
                 raw_audio, resample_state[0] = audioop.ratecv(raw_audio, 2, 1, 8000, 16000, resample_state[0])
                 pcm_b64 = base64.b64encode(raw_audio).decode()
-                await gemini_ws.send(json.dumps({
-                    "realtimeInput": {
-                        "audio": {
-                            "data": pcm_b64,
-                            "mimeType": "audio/pcm;rate=16000"
+
+                if kavitha_turn_start[0] > 0:
+                    # Kavitha is speaking — buffer silently, don't interrupt
+                    audio_buf.append(pcm_b64)
+                else:
+                    # Kavitha finished — flush buffered audio first, then send current
+                    if audio_buf:
+                        for buffered in audio_buf:
+                            await gemini_ws.send(json.dumps({
+                                "realtimeInput": {"audio": {"data": buffered, "mimeType": "audio/pcm;rate=16000"}}
+                            }))
+                        audio_buf.clear()
+                    await gemini_ws.send(json.dumps({
+                        "realtimeInput": {
+                            "audio": {
+                                "data": pcm_b64,
+                                "mimeType": "audio/pcm;rate=16000"
+                            }
                         }
-                    }
-                }))
+                    }))
 
             elif event == "stop":
                 log.info("Exotel stream stopped — candidate hung up")
