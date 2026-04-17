@@ -502,8 +502,9 @@ async def stream(exotel_ws: WebSocket):
             stream_sid_holder = []
             last_audio_ts = [0.0]
             resample_state = [None]
-            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, resample_state))
-            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts))
+            kavitha_turn_start = [0.0]  # timestamp when Kavitha started speaking current turn
+            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, resample_state, kavitha_turn_start))
+            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, kavitha_turn_start))
 
             done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -527,7 +528,9 @@ async def stream(exotel_ws: WebSocket):
         log.info("Stream session ended")
 
 
-async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, resample_state: list):
+BARGE_IN_PROTECT_SECS = 4.0  # block candidate audio for this long after Kavitha starts speaking
+
+async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, resample_state: list, kavitha_turn_start: list):
     """Candidate's voice -> Gemini."""
     try:
         async for raw in exotel_ws.iter_text():
@@ -544,6 +547,11 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                 log.info(f"Stream started — callSid: {info.get('call_sid')}, streamSid: {stream_sid}")
 
             elif event == "media":
+                # Block candidate audio for first N seconds after Kavitha starts speaking
+                # This prevents backchannels from interrupting mid-sentence
+                if kavitha_turn_start[0] > 0 and (time.time() - kavitha_turn_start[0]) < BARGE_IN_PROTECT_SECS:
+                    continue
+
                 audio_b64 = data["media"]["payload"]
                 last_audio_ts[0] = time.time()
                 # Resample 8kHz -> 16kHz (Gemini's preferred rate) — same as working ElevenLabs bridge
@@ -577,7 +585,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
         log.error(f"Exotel→Gemini error: {e}")
 
 
-async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list):
+async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, kavitha_turn_start: list):
     """Kavitha's voice (Gemini) -> candidate."""
     kavitha_buf = []
     candidate_buf = []
@@ -597,6 +605,8 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 mime = inline_data.get("mimeType", "")
                 if mime.startswith("audio/"):
                     first_response = False
+                    if kavitha_turn_start[0] == 0.0:
+                        kavitha_turn_start[0] = time.time()  # record when Kavitha started this turn
                     audio_b64 = inline_data["data"]
                     raw_audio = base64.b64decode(audio_b64)
 
@@ -652,6 +662,7 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 kavitha_buf.append(output_transcript["text"])
 
             if server_content.get("turnComplete"):
+                kavitha_turn_start[0] = 0.0  # reset — Kavitha finished speaking, candidate can now be heard
                 if candidate_buf:
                     log.info(f"Candidate: {''.join(candidate_buf)}")
                     candidate_buf.clear()
