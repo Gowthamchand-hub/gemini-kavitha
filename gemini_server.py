@@ -597,10 +597,11 @@ async def stream(exotel_ws: WebSocket):
             last_audio_ts = [0.0]
             resample_state = [None]
             kavitha_turn_start = [0.0]
+            first_turn_done = [False]  # True after Kavitha's first message completes — discard buffer until then
             session_data = [{}]       # incremental candidate data collected during call
             call_completed = [False]  # True if save_candidate was called (full completion)
-            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, resample_state, kavitha_turn_start))
-            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, kavitha_turn_start, session_data, call_completed))
+            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, resample_state, kavitha_turn_start, first_turn_done))
+            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, kavitha_turn_start, first_turn_done, session_data, call_completed))
 
             done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -630,7 +631,7 @@ async def stream(exotel_ws: WebSocket):
         log.info("Stream session ended")
 
 
-async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, resample_state: list, kavitha_turn_start: list):
+async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, resample_state: list, kavitha_turn_start: list, first_turn_done: list):
     """Candidate's voice -> Gemini."""
     audio_buf = []  # buffer candidate audio while Kavitha is speaking
 
@@ -659,12 +660,17 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                     # Kavitha is speaking — buffer silently, don't interrupt
                     audio_buf.append(pcm_b64)
                 else:
-                    # Kavitha finished — flush buffered audio first, then send current
+                    # Kavitha finished — flush or discard buffered audio
                     if audio_buf:
-                        for buffered in audio_buf:
-                            await gemini_ws.send(json.dumps({
-                                "realtimeInput": {"audio": {"data": buffered, "mimeType": "audio/pcm;rate=16000"}}
-                            }))
+                        if first_turn_done[0]:
+                            # Normal turns: flush buffered audio so Gemini hears what candidate said
+                            for buffered in audio_buf:
+                                await gemini_ws.send(json.dumps({
+                                    "realtimeInput": {"audio": {"data": buffered, "mimeType": "audio/pcm;rate=16000"}}
+                                }))
+                        else:
+                            # First turn just ended: discard everything — pickup sounds, "hello", noise
+                            pass
                         audio_buf.clear()
                     await gemini_ws.send(json.dumps({
                         "realtimeInput": {
@@ -693,7 +699,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
         log.error(f"Exotel→Gemini error: {e}")
 
 
-async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, kavitha_turn_start: list, session_data: list, call_completed: list):
+async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, kavitha_turn_start: list, first_turn_done: list, session_data: list, call_completed: list):
     """Kavitha's voice (Gemini) -> candidate."""
     kavitha_buf = []
     candidate_buf = []
@@ -784,6 +790,7 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
 
             if server_content.get("turnComplete"):
                 kavitha_turn_start[0] = 0.0  # reset — Kavitha finished speaking, candidate can now be heard
+                first_turn_done[0] = True    # after first message, candidate audio is live
                 if candidate_buf:
                     log.info(f"Candidate: {''.join(candidate_buf)}")
                     candidate_buf.clear()
