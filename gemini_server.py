@@ -380,10 +380,20 @@ Step 1 — Ask: "Theek hai [Name]ji, saari details mil gayi hain. Koi sawaal hai
 Step 2 — Wait for candidate to respond.
 Step 3 — If they ask a question → answer it properly and clearly (use the knowledge base). Then ask: "Aur koi sawaal hai, ya main call end kar sakti hoon?"
 Step 4 — Keep answering questions until they have no more.
-Step 5 — Call save_candidate() with all collected details — name, area, experience, languages (with proficiency), age_group, timing, salary, smartphone, reference_name (if given), reference_number.
+Step 5 — Call save_candidate() with status="Completed" and all collected details.
 Step 6 — SAY the goodbye out loud:
 "Theek hai. Hamari team jald aapse contact karegi. Thank you, take care [Name]ji."
 Step 7 — ONLY AFTER saying the goodbye, call end_call().
+
+IMPORTANT — ALWAYS call save_candidate() before end_call() in EVERY scenario:
+- Completed screening → status="Completed" + all fields
+- Candidate busy/driving → status="Busy - Callback [time they gave]" + name if collected
+- Candidate not interested → status="Not Interested" + name if collected
+- Disqualified (no experience) → status="Disqualified - No Experience" + name + area if collected
+- Disqualified (not Bangalore) → status="Disqualified - Outside Bangalore" + name + area
+- Disqualified (no smartphone) → status="Disqualified - No Smartphone" + all collected so far
+- Disqualified (no reference) → status="Disqualified - No Reference" + all collected so far
+Never skip save_candidate(). It must always be called before end_call().
 
 IMPORTANT: Always call save_candidate() before end_call(). Never skip it.
 
@@ -568,22 +578,23 @@ async def stream(exotel_ws: WebSocket):
                                 },
                                 {
                                     "name": "save_candidate",
-                                    "description": "Save the candidate's screening details to the database. Call this after collecting all details, before saying goodbye.",
+                                    "description": "Save the candidate record before ending the call. Call this ALWAYS before end_call, in every scenario — completed screening, busy/callback, not interested, or disqualified. Pass whatever data was collected and a status string.",
                                     "parameters": {
                                         "type": "OBJECT",
                                         "properties": {
-                                            "name":             {"type": "STRING", "description": "Candidate's full name"},
-                                            "area":             {"type": "STRING", "description": "Area in Bangalore"},
-                                            "experience":       {"type": "STRING", "description": "Years of experience and where"},
-                                            "languages":        {"type": "STRING", "description": "Languages with assessed proficiency, e.g. Hindi - Expert, English - Intermediate"},
-                                            "age_group":        {"type": "STRING", "description": "Preferred child age group"},
-                                            "timing":           {"type": "STRING", "description": "Working hours candidate mentioned"},
-                                            "salary":           {"type": "STRING", "description": "Salary expectation"},
-                                            "smartphone":       {"type": "STRING", "description": "Yes or Can Arrange"},
-                                            "reference_name":   {"type": "STRING", "description": "Reference person name (optional)"},
-                                            "reference_number": {"type": "STRING", "description": "Reference contact number"}
+                                            "status":           {"type": "STRING", "description": "One of: Completed, Not Interested, Busy - Callback [time], Disqualified - No Experience, Disqualified - Outside Bangalore, Disqualified - No Smartphone, Disqualified - No Reference"},
+                                            "name":             {"type": "STRING", "description": "Candidate's full name (if collected)"},
+                                            "area":             {"type": "STRING", "description": "Area in Bangalore (if collected)"},
+                                            "experience":       {"type": "STRING", "description": "Years of experience and where (if collected)"},
+                                            "languages":        {"type": "STRING", "description": "Languages with assessed proficiency (if collected)"},
+                                            "age_group":        {"type": "STRING", "description": "Preferred child age group (if collected)"},
+                                            "timing":           {"type": "STRING", "description": "Working hours candidate mentioned (if collected)"},
+                                            "salary":           {"type": "STRING", "description": "Salary expectation (if collected)"},
+                                            "smartphone":       {"type": "STRING", "description": "Yes or Can Arrange (if collected)"},
+                                            "reference_name":   {"type": "STRING", "description": "Reference person name (if collected)"},
+                                            "reference_number": {"type": "STRING", "description": "Reference contact number (if collected)"}
                                         },
-                                        "required": ["name", "area", "experience", "languages", "age_group", "timing", "salary", "smartphone", "reference_number"]
+                                        "required": ["status"]
                                     }
                                 }
                             ]
@@ -749,10 +760,12 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             for fn in tool_call.get("functionCalls", []):
                 if fn.get("name") == "save_candidate" and not call_completed[0]:
                     args = fn.get("args", {})
-                    args["status"] = "Completed"
+                    # status comes from Gemini; fallback to Completed if missing
+                    if not args.get("status"):
+                        args["status"] = "Completed"
                     session_data[0].update(args)
                     call_completed[0] = True
-                    log.info(f"Saving candidate: {args.get('name', 'Unknown')}")
+                    log.info(f"Saving candidate: {args.get('name', 'Unknown')} — {args.get('status')}")
                     await save_to_sheet(args)
                     await gemini_ws.send(json.dumps({
                         "toolResponse": {
