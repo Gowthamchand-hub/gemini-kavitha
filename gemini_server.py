@@ -661,6 +661,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                 pcm_b64 = base64.b64encode(raw_audio).decode()
 
                 if not first_turn_done[0]:
+                    log.debug("Dropping candidate audio — first turn not done yet")
                     continue  # drop all candidate audio until Kavitha's first message finishes
 
                 await gemini_ws.send(json.dumps({
@@ -777,7 +778,8 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             if output_transcript.get("text"):
                 kavitha_buf.append(output_transcript["text"])
 
-            if server_content.get("turnComplete"):
+            if server_content.get("turnComplete") or server_content.get("generationComplete"):
+                log.info(f"Turn signal: turnComplete={server_content.get('turnComplete')} generationComplete={server_content.get('generationComplete')} first_turn_done={first_turn_done[0]}")
                 first_turn_done[0] = True  # Kavitha finished first message — candidate audio now live
                 if candidate_buf:
                     log.info(f"Candidate: {''.join(candidate_buf)}")
