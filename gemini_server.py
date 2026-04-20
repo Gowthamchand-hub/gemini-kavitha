@@ -802,7 +802,6 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             input_transcript = server_content.get("inputTranscription", {})
             if input_transcript.get("text"):
                 candidate_buf.append(input_transcript["text"])
-                candidate_turn_end_ts[0] = time.time()  # candidate just spoke — start latency timer
 
             output_transcript = server_content.get("outputTranscription", {})
             if output_transcript.get("text"):
@@ -814,6 +813,7 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                     log.info(f"[LATENCY] First message duration: {first_msg_duration:.2f}s")
                 first_turn_done[0] = True  # Kavitha finished — candidate audio now live
                 kavitha_speaking = False    # reset for next turn
+                candidate_turn_end_ts[0] = time.time()  # start timer — candidate's turn begins now
                 if candidate_buf:
                     log.info(f"Candidate: {''.join(candidate_buf)}")
                     candidate_buf.clear()
