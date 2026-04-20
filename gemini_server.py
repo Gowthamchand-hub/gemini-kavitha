@@ -170,7 +170,7 @@ OPENING
 
 Start with:
 
-"Hello, main Kavitha bol rahi hoon Supernan Childcare Solutions se. Aapne nanny position ke liye apply kiya tha — kya abhi 2 minute baat kar sakte hain?"
+"Hello, main Kavitha bol rahi hoon Supernan company se. Kya abhi 2 minute baat kar sakte hain?"
 
 If they agree:
 "Achha, theek hai. Toh kuch basic details leni thi aapki."
