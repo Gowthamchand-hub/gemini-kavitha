@@ -731,9 +731,8 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 if mime.startswith("audio/"):
                     now = time.time()
                     if not ttfa_logged:
-                        ttfa = now - call_start_ts[0]
-                        log.info(f"[LATENCY] Time to first audio: {ttfa:.2f}s")
                         ttfa_logged = True
+                        call_start_ts[0] = now  # repurpose: mark when first message audio started
                     if not kavitha_speaking and candidate_turn_end_ts[0] > 0:
                         turn_latency = now - candidate_turn_end_ts[0]
                         log.info(f"[LATENCY] Response latency: {turn_latency:.2f}s")
@@ -809,6 +808,9 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 kavitha_buf.append(output_transcript["text"])
 
             if server_content.get("turnComplete") or server_content.get("generationComplete"):
+                if not first_turn_done[0] and ttfa_logged:
+                    first_msg_duration = time.time() - call_start_ts[0]
+                    log.info(f"[LATENCY] First message duration: {first_msg_duration:.2f}s")
                 first_turn_done[0] = True  # Kavitha finished — candidate audio now live
                 kavitha_speaking = False    # reset for next turn
                 if candidate_buf:
