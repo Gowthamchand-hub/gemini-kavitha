@@ -831,7 +831,6 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                             pass
                         return
                 first_response = True
-                candidate_stopped_ts[0] = 0.0  # reset for next turn
 
     except websockets.exceptions.ConnectionClosedOK:
         log.info("Gemini reader closed")
