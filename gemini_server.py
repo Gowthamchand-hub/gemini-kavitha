@@ -621,10 +621,12 @@ async def stream(exotel_ws: WebSocket):
             last_audio_ts = [0.0]
             resample_state = [None]
             first_turn_done = [False]  # True after Kavitha's first message — ignore candidate audio until then
+            call_start_ts = [time.time()]       # when call trigger was sent to Gemini
+            candidate_turn_end_ts = [0.0]       # when candidate last finished speaking
             session_data = [{}]       # incremental candidate data collected during call
             call_completed = [False]  # True if save_candidate was called (full completion)
             task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, resample_state, first_turn_done))
-            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, first_turn_done, session_data, call_completed))
+            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, first_turn_done, call_start_ts, candidate_turn_end_ts, session_data, call_completed))
 
             done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -708,12 +710,12 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
         log.error(f"Exotel→Gemini error: {e}")
 
 
-async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, first_turn_done: list, session_data: list, call_completed: list):
+async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, first_turn_done: list, call_start_ts: list, candidate_turn_end_ts: list, session_data: list, call_completed: list):
     """Kavitha's voice (Gemini) -> candidate."""
     kavitha_buf = []
     candidate_buf = []
-    first_response = True
-    candidate_stopped_ts = [0.0]  # when candidate finished speaking
+    ttfa_logged = False        # True once time-to-first-audio is logged
+    kavitha_speaking = False   # True when Kavitha is currently generating audio
 
     try:
         async for raw in gemini_ws:
@@ -727,7 +729,16 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 inline_data = part.get("inlineData", {})
                 mime = inline_data.get("mimeType", "")
                 if mime.startswith("audio/"):
-                    first_response = False
+                    now = time.time()
+                    if not ttfa_logged:
+                        ttfa = now - call_start_ts[0]
+                        log.info(f"[LATENCY] Time to first audio: {ttfa:.2f}s")
+                        ttfa_logged = True
+                    if not kavitha_speaking and candidate_turn_end_ts[0] > 0:
+                        turn_latency = now - candidate_turn_end_ts[0]
+                        log.info(f"[LATENCY] Response latency: {turn_latency:.2f}s")
+                        candidate_turn_end_ts[0] = 0.0
+                    kavitha_speaking = True
                     audio_b64 = inline_data["data"]
                     raw_audio = base64.b64decode(audio_b64)
 
@@ -791,15 +802,15 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             input_transcript = server_content.get("inputTranscription", {})
             if input_transcript.get("text"):
                 candidate_buf.append(input_transcript["text"])
-                candidate_stopped_ts[0] = time.time()  # candidate just finished speaking
+                candidate_turn_end_ts[0] = time.time()  # candidate just spoke — start latency timer
 
             output_transcript = server_content.get("outputTranscription", {})
             if output_transcript.get("text"):
                 kavitha_buf.append(output_transcript["text"])
 
             if server_content.get("turnComplete") or server_content.get("generationComplete"):
-                log.info(f"Turn signal: turnComplete={server_content.get('turnComplete')} generationComplete={server_content.get('generationComplete')} first_turn_done={first_turn_done[0]}")
-                first_turn_done[0] = True  # Kavitha finished first message — candidate audio now live
+                first_turn_done[0] = True  # Kavitha finished — candidate audio now live
+                kavitha_speaking = False    # reset for next turn
                 if candidate_buf:
                     log.info(f"Candidate: {''.join(candidate_buf)}")
                     candidate_buf.clear()
