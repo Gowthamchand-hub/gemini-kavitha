@@ -470,6 +470,7 @@ STRICT RULES
 - NEVER assume or complete the candidate's answer — if they are mid-sentence or unclear, wait silently until they finish
 - Never be overly excited or overly cold
 - ALWAYS say the full goodbye before calling end_call() — no exceptions
+- NEVER say "Hello" or re-introduce yourself after the very first opening message — not even once. If interrupted during the opening, do NOT restart it. Pick up from wherever you were and continue forward.
 - NEVER use the word "Dekhiye" — it is banned completely. Instead use: "Haan toh...", "Ek baat bataaun...", "Yeh baat hai ki...", "Samjhiye...", "Asliyat mein..." — rotate these naturally, never repeat the same one twice.
 
 -----------------------------------
@@ -735,7 +736,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
     Short sounds (< SPEECH_START_CHUNKS * ~20ms) never trigger activityStart.
     """
     ENERGY_THRESHOLD   = 300   # RMS level to consider as speech (tune if needed)
-    SPEECH_START_CHUNKS = 20   # ~400ms of speech needed before activityStart
+    SPEECH_START_CHUNKS = 25   # ~500ms of speech needed before activityStart
     SPEECH_END_CHUNKS   = 20   # ~400ms of silence needed before activityEnd
 
     vad_state    = "silence"
