@@ -106,18 +106,6 @@ def _save_to_sheet_sync(data: dict):
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL   = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-live-preview")
 
-# ---------------------------------------------------------------------------
-# Candidate registry — maps call_sid → expected candidate name
-# Populated by /register-call before each outbound call
-# ---------------------------------------------------------------------------
-pending_calls: dict = {}  # {call_sid: {"name": str, "phone": str}}
-
-# Hardcoded test entries (phone → name) for calls triggered without registration
-PHONE_NAME_MAP: dict = {
-    "09345473240": "Pooja",
-    "9345473240":  "Pooja",
-}
-
 def get_ws_base_url():
     load_dotenv(override=True)
     return os.getenv("SERVER_WS_BASE_URL", "wss://your-server.com")
@@ -190,11 +178,10 @@ If they confirm (haan, yes, haan ji, sahi hai, etc.):
 → Ask: "Achha, theek hai. Kya abhi 2 minute baat kar sakte hain?"
 → If they agree → "Toh kuch basic details leni thi aapki." → proceed to screening
 
-If someone else picks up or the name they give doesn't match the expected candidate name (told to you in the trigger message):
-→ Say politely: "Aapka naam [their name] hai, lekin hamare list mein is number pe [expected name] ka naam registered hai. Kya aap unse related hain ya kya main unse baat kar sakti hoon?"
-→ If they say they will hand the phone → stay completely silent, do NOT say anything. Wait for a new voice to speak.
-→ When the new person speaks (says "hello", "haan", or anything) → ask: "Kya main [expected name] ji se baat kar rahi hoon?" → wait for confirmation → then proceed with full screening from the beginning
-→ If candidate is not available → ask: "Koi baat nahi. Kab call karun unhe? Timing batayiye."
+If someone else picks up (the person who answers didn't apply):
+→ Ask politely: "Kya aapke ghar mein kisine — jaise wife, sister, ya koi aur — nanny position ke liye apply kiya tha?"
+→ If they say yes and will hand the phone → stay completely silent, do NOT say anything. Wait for a new voice to speak. When they speak → proceed with full screening from the beginning.
+→ If the candidate is not available right now → ask: "Koi baat nahi. Kab call karun unhe? Timing batayiye."
    → If they give a time → "Theek hai, [time] pe call karenge. Thank you." → save_candidate(status="Callback - [time]") → end_call()
    → If they give a number → "Theek hai, [number] pe call karenge. Thank you." → save_candidate(status="Callback - [number]") → end_call()
    → If neither → "Theek hai, koi baat nahi. Take care." → save_candidate(status="Not Reachable") → end_call()
@@ -650,9 +637,8 @@ async def stream(exotel_ws: WebSocket):
             setup_response = await gemini_ws.recv()
             log.info(f"Gemini setup response: {setup_response[:100]}")
 
-            # Wait for Exotel start event to get call_sid → look up expected candidate name
+            # Wait for Exotel start event to get stream_sid
             stream_sid_holder = []
-            expected_name = None
             async for raw in exotel_ws.iter_text():
                 evt = json.loads(raw)
                 if evt.get("event") == "connected":
@@ -661,27 +647,10 @@ async def stream(exotel_ws: WebSocket):
                     info = evt.get("start", {})
                     stream_sid = info.get("stream_sid") or info.get("streamSid", "")
                     stream_sid_holder.append(stream_sid)
-                    call_sid = info.get("call_sid") or info.get("callSid", "")
-                    log.info(f"Stream started — callSid: {call_sid}, streamSid: {stream_sid}")
-                    # Look up expected candidate name
-                    entry = pending_calls.pop(call_sid, None)
-                    if entry:
-                        expected_name = entry["name"]
-                    else:
-                        # Fallback: check hardcoded phone map using from-number if available
-                        from_num = info.get("from") or info.get("From", "")
-                        expected_name = PHONE_NAME_MAP.get(from_num) or PHONE_NAME_MAP.get(from_num.lstrip("0"))
-                    if expected_name:
-                        log.info(f"Expected candidate: {expected_name}")
+                    log.info(f"Stream started — streamSid: {stream_sid}")
                     break
 
-            # Trigger Kavitha with candidate name if known
-            trigger_text = (
-                f"The call has just connected. You are calling {expected_name}. Begin the conversation now."
-                if expected_name else
-                "The call has just connected. Begin the conversation now."
-            )
-            await gemini_ws.send(json.dumps({"realtimeInput": {"text": trigger_text}}))
+            await gemini_ws.send(json.dumps({"realtimeInput": {"text": "The call has just connected. Begin the conversation now."}}))
 
             last_audio_ts = [0.0]
             resample_state = [None]
@@ -913,22 +882,6 @@ async def status(request: Request):
 async def stream_config(request: Request):
     wss_url = f"{get_ws_base_url().rstrip('/')}/stream"
     return JSONResponse({"url": wss_url})
-
-
-# ---------------------------------------------------------------------------
-# Health check
-# ---------------------------------------------------------------------------
-
-@app.post("/register-call")
-async def register_call(request: Request):
-    data = await request.json()
-    sid  = data.get("sid")
-    name = data.get("name", "").strip()
-    phone = data.get("phone", "").strip()
-    if sid and name:
-        pending_calls[sid] = {"name": name, "phone": phone}
-        log.info(f"Registered call: sid={sid} name={name} phone={phone}")
-    return JSONResponse({"status": "ok"})
 
 
 @app.get("/health")
