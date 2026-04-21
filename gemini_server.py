@@ -176,12 +176,6 @@ Start with:
 
 "Hello, main Kavitha bol rahi hoon Supernan company se. Aapne nanny position ke liye apply kiya tha na?"
 
-CRITICAL — AFTER OPENING IS SAID ONCE:
-- NEVER say "Hello" again. NEVER re-introduce yourself. Not even if you were interrupted mid-sentence.
-- If interrupted mid-opening → do NOT restart. Just move forward to the next question.
-- If candidate says "haan", "haan bolo", "ji", "yes", "bolo", "boliye", or ANY confirmation sound → treat it as YES to having applied and immediately ask: "Kya abhi 2 minute baat kar sakte hain?"
-- The intro is said ONCE. After that, always move forward, never backward.
-
 Wait for candidate to respond. Then handle based on their reply:
 
 If they confirm (haan, yes, haan ji, sahi hai, etc.):
@@ -625,9 +619,14 @@ async def stream(exotel_ws: WebSocket):
                         }
                     },
                     "realtimeInputConfig": {
+                        # Manual VAD active — built-in VAD disabled
+                        # To revert to auto VAD, replace with:
+                        # "automaticActivityDetection": {
+                        #     "startOfSpeechSensitivity": "START_SENSITIVITY_LOW",
+                        #     "endOfSpeechSensitivity": "END_SENSITIVITY_LOW"
+                        # }
                         "automaticActivityDetection": {
-                            "startOfSpeechSensitivity": "START_SENSITIVITY_LOW",
-                            "endOfSpeechSensitivity": "END_SENSITIVITY_LOW"
+                            "disabled": True
                         }
                     },
                     "systemInstruction": {
@@ -727,10 +726,24 @@ async def stream(exotel_ws: WebSocket):
 
 
 async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, resample_state: list, first_turn_done: list):
-    """Candidate's voice -> Gemini."""
+    """Candidate's voice -> Gemini with manual VAD.
+
+    State machine:
+      silence -> possible_speech -> speech -> possible_silence -> silence
+    Short sounds (< SPEECH_START_CHUNKS * ~20ms) never trigger activityStart.
+    """
+    ENERGY_THRESHOLD   = 300   # RMS level to consider as speech (tune if needed)
+    SPEECH_START_CHUNKS = 12   # ~240ms of speech needed before activityStart
+    SPEECH_END_CHUNKS   = 15   # ~300ms of silence needed before activityEnd
+
+    vad_state    = "silence"
+    speech_chunks  = 0
+    silence_chunks = 0
+    audio_buffer   = []  # holds chunks during possible_speech
+
     try:
         async for raw in exotel_ws.iter_text():
-            data = json.loads(raw)
+            data  = json.loads(raw)
             event = data.get("event")
 
             if event == "connected":
@@ -744,20 +757,64 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                 last_audio_ts[0] = time.time()
                 raw_audio = base64.b64decode(audio_b64)
                 raw_audio, resample_state[0] = audioop.ratecv(raw_audio, 2, 1, 8000, 16000, resample_state[0])
-                pcm_b64 = base64.b64encode(raw_audio).decode()
 
                 if not first_turn_done[0]:
-                    log.debug("Dropping candidate audio — first turn not done yet")
-                    continue  # drop all candidate audio until Kavitha's first message finishes
+                    continue  # block candidate audio until Kavitha's first message finishes
 
-                await gemini_ws.send(json.dumps({
-                    "realtimeInput": {
-                        "audio": {
-                            "data": pcm_b64,
-                            "mimeType": "audio/pcm;rate=16000"
-                        }
-                    }
-                }))
+                rms       = audioop.rms(raw_audio, 2)
+                is_speech = rms > ENERGY_THRESHOLD
+                pcm_b64   = base64.b64encode(raw_audio).decode()
+
+                if vad_state == "silence":
+                    if is_speech:
+                        vad_state     = "possible_speech"
+                        speech_chunks = 1
+                        audio_buffer  = [pcm_b64]
+
+                elif vad_state == "possible_speech":
+                    if is_speech:
+                        speech_chunks += 1
+                        audio_buffer.append(pcm_b64)
+                        if speech_chunks >= SPEECH_START_CHUNKS:
+                            vad_state      = "speech"
+                            silence_chunks = 0
+                            log.debug(f"VAD: speech started (rms={rms})")
+                            await gemini_ws.send(json.dumps({"realtimeInput": {"activityStart": {}}}))
+                            for buf in audio_buffer:
+                                await gemini_ws.send(json.dumps({
+                                    "realtimeInput": {"audio": {"data": buf, "mimeType": "audio/pcm;rate=16000"}}
+                                }))
+                            audio_buffer = []
+                    else:
+                        vad_state     = "silence"
+                        speech_chunks = 0
+                        audio_buffer  = []
+
+                elif vad_state == "speech":
+                    await gemini_ws.send(json.dumps({
+                        "realtimeInput": {"audio": {"data": pcm_b64, "mimeType": "audio/pcm;rate=16000"}}
+                    }))
+                    if not is_speech:
+                        vad_state      = "possible_silence"
+                        silence_chunks = 1
+                    else:
+                        silence_chunks = 0
+
+                elif vad_state == "possible_silence":
+                    await gemini_ws.send(json.dumps({
+                        "realtimeInput": {"audio": {"data": pcm_b64, "mimeType": "audio/pcm;rate=16000"}}
+                    }))
+                    if is_speech:
+                        vad_state      = "speech"
+                        silence_chunks = 0
+                    else:
+                        silence_chunks += 1
+                        if silence_chunks >= SPEECH_END_CHUNKS:
+                            vad_state      = "silence"
+                            silence_chunks = 0
+                            speech_chunks  = 0
+                            log.debug("VAD: speech ended")
+                            await gemini_ws.send(json.dumps({"realtimeInput": {"activityEnd": {}}}))
 
             elif event == "stop":
                 log.info("Exotel stream stopped — candidate hung up")
