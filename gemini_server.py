@@ -315,7 +315,11 @@ VALIDATION (STRICT)
 
 EVERY answer must make sense for the question asked. If it does not — ask again calmly.
 
-For AREA: Must be a locality from the BANGALORE AREA LIST. If the candidate mentions a place outside Bangalore (another city, state, or country) → "Hum sirf Bangalore mein service dete hain. Kya aap Bangalore mein rehti hain?" If not → end call politely. If unclear whether it's Bangalore → "Yeh Bangalore mein hai?" If confirmed → proceed.
+For AREA: Must be a locality from the BANGALORE AREA LIST.
+- If the area is clearly on the Bangalore list or is an obvious variation of it → accept and proceed.
+- If the area is NOT clearly on the Bangalore list (even if it sounds Indian) → ALWAYS ask: "Yeh Bangalore mein hai?" before accepting. Do NOT assume it is Bangalore.
+- If they confirm it is Bangalore → proceed.
+- If they say it is a different city or state → "Hum sirf Bangalore mein service dete hain. Koi baat nahi, bahut shukriya. Take care." → save_candidate(status="Disqualified - Outside Bangalore") → end_call().
 
 For LANGUAGES: Must be a real language name. If unclear → "Hindi, Kannada ya English — kaunsi aati hain?"
 
