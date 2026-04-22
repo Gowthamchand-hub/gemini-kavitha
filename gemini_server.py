@@ -697,8 +697,10 @@ async def stream(exotel_ws: WebSocket):
             first_turn_done = [False]  # True after Kavitha's first message — ignore candidate audio until then
             session_data = [{}]       # incremental candidate data collected during call
             call_completed = [False]  # True if save_candidate was called (full completion)
+            goodbye_spoken = [False]  # True if goodbye phrase detected in Kavitha's speech
+            pending_hangup = [False]  # True if end_call was received but goodbye was injected first
             task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, resample_state, first_turn_done))
-            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, first_turn_done, session_data, call_completed))
+            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup))
             task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_audio_ts, call_completed))
 
             done, pending = await asyncio.wait([task1, task2, task3], return_when=asyncio.FIRST_COMPLETED)
@@ -838,8 +840,12 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
         log.error(f"Exotel→Gemini error: {e}")
 
 
-async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, first_turn_done: list, session_data: list, call_completed: list):
+async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, first_turn_done: list, session_data: list, call_completed: list, goodbye_spoken: list = None, pending_hangup: list = None):
     """Kavitha's voice (Gemini) -> candidate."""
+    if goodbye_spoken is None:
+        goodbye_spoken = [False]
+    if pending_hangup is None:
+        pending_hangup = [False]
     kavitha_buf = []
     candidate_buf = []
 
@@ -901,18 +907,32 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                     }))
 
                 if fn.get("name") == "end_call":
-                    log.info("Kavitha called end_call — hanging up")
                     await gemini_ws.send(json.dumps({
                         "toolResponse": {
                             "functionResponses": [{"id": fn.get("id"), "response": {"result": "ok"}}]
                         }
                     }))
-                    await asyncio.sleep(0.5)
-                    try:
-                        await exotel_ws.close()
-                    except Exception:
-                        pass
-                    return
+                    if not goodbye_spoken[0]:
+                        # Gemini skipped the goodbye — force it now
+                        log.info("Goodbye not spoken — injecting goodbye before hangup")
+                        candidate_name = session_data[0].get("name", "")
+                        name_suffix = f", take care {candidate_name}ji" if candidate_name else ", take care"
+                        goodbye_text = f"Theek hai. Hamari team jald aapse contact karegi. Thank you{name_suffix}."
+                        await gemini_ws.send(json.dumps({
+                            "clientContent": {
+                                "turns": [{"role": "user", "parts": [{"text": f"[SAY THIS OUT LOUD NOW]: {goodbye_text}"}]}],
+                                "turnComplete": True
+                            }
+                        }))
+                        pending_hangup[0] = True
+                    else:
+                        log.info("Kavitha called end_call — hanging up")
+                        await asyncio.sleep(0.5)
+                        try:
+                            await exotel_ws.close()
+                        except Exception:
+                            pass
+                        return
 
             # Buffer transcripts, log only when turn is complete
             input_transcript = server_content.get("inputTranscription", {})
@@ -932,10 +952,14 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                     full_text = ''.join(kavitha_buf)
                     log.info(f"Kavitha: {full_text}")
                     kavitha_buf.clear()
-                    # Fallback: end call if goodbye phrase detected
+                    # Track goodbye, hangup when injected goodbye finishes
                     goodbye_phrases = ["take care", "thank you, take care", "contact karegi", "hamari team jald"]
                     if any(p in full_text.lower() for p in goodbye_phrases):
-                        log.info("Goodbye detected — ending call")
+                        goodbye_spoken[0] = True
+                        if pending_hangup[0]:
+                            log.info("Injected goodbye spoken — now hanging up")
+                        else:
+                            log.info("Goodbye detected — ending call")
                         await asyncio.sleep(1)
                         try:
                             await exotel_ws.close()
