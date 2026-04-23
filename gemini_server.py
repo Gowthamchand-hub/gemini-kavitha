@@ -300,7 +300,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
     Short sounds (< SPEECH_START_CHUNKS * ~20ms) never trigger activityStart.
     """
     ENERGY_THRESHOLD   = 300   # RMS level to consider as speech (tune if needed)
-    SPEECH_START_CHUNKS = 15   # ~300ms of speech needed before activityStart
+    SPEECH_START_CHUNKS = 22   # ~440ms of speech needed before activityStart — filters single-syllable backchannels
     SPEECH_END_CHUNKS   = 30   # ~600ms of silence needed before activityEnd
 
     vad_state    = "silence"
