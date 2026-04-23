@@ -253,6 +253,7 @@ async def stream(exotel_ws: WebSocket):
 
             last_audio_ts = [0.0]
             last_speech_ts = [0.0]   # updated only on VAD activityStart/End — used by silence watchdog
+            nudge_pending  = [False] # True after watchdog nudge sent — cleared on Kavitha's turnComplete
             resample_state = [None]
             first_turn_done = [False]  # True after Kavitha's first message — ignore candidate audio until then
             session_data = [{}]       # incremental candidate data collected during call
@@ -260,8 +261,8 @@ async def stream(exotel_ws: WebSocket):
             goodbye_spoken = [False]  # True if goodbye phrase detected in Kavitha's speech
             pending_hangup = [False]  # True if end_call was received but goodbye was injected first
             task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done))
-            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup))
-            task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, call_completed))
+            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, nudge_pending, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup))
+            task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, nudge_pending, call_completed))
 
             done, pending = await asyncio.wait([task1, task2, task3], return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -402,7 +403,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
         log.error(f"Exotel→Gemini error: {e}")
 
 
-async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, first_turn_done: list, session_data: list, call_completed: list, goodbye_spoken: list = None, pending_hangup: list = None):
+async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, nudge_pending: list, first_turn_done: list, session_data: list, call_completed: list, goodbye_spoken: list = None, pending_hangup: list = None):
     """Kavitha's voice (Gemini) -> candidate."""
     if goodbye_spoken is None:
         goodbye_spoken = [False]
@@ -508,6 +509,7 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             if server_content.get("turnComplete") or server_content.get("generationComplete"):
                 first_turn_done[0] = True  # Kavitha finished — candidate audio now live
                 last_speech_ts[0] = time.time()  # reset silence timer — give candidate fresh time to respond
+                nudge_pending[0] = False  # Kavitha responded to nudge — allow next nudge if needed
                 if candidate_buf:
                     log.info(f"Candidate: {''.join(candidate_buf)}")
                     candidate_buf.clear()
@@ -542,8 +544,8 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             pass
 
 
-async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: list, call_completed: list):
-    """Nudge Gemini if candidate has not spoken (no VAD activity) for 10 seconds after first turn."""
+async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: list, nudge_pending: list, call_completed: list):
+    """Nudge Gemini once if candidate has not spoken for 15s. Wait for Kavitha to respond before nudging again."""
     SILENCE_TIMEOUT = 15  # seconds of no VAD speech activity before nudging
     CHECK_INTERVAL  = 2   # how often to check
 
@@ -556,10 +558,12 @@ async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: li
             if not first_turn_done[0]:
                 last_speech_ts[0] = time.time()
                 continue
+            if nudge_pending[0]:
+                continue  # already nudged — wait for Kavitha to finish responding before nudging again
             elapsed = time.time() - last_speech_ts[0]
             if elapsed >= SILENCE_TIMEOUT:
                 log.info(f"Silence watchdog: {elapsed:.1f}s — nudging Kavitha")
-                last_speech_ts[0] = time.time()  # reset to avoid repeated nudges
+                nudge_pending[0] = True  # block further nudges until Kavitha's turnComplete clears this
                 try:
                     await gemini_ws.send(json.dumps({
                         "realtimeInput": {
