@@ -260,7 +260,7 @@ async def stream(exotel_ws: WebSocket):
             goodbye_spoken = [False]  # True if goodbye phrase detected in Kavitha's speech
             pending_hangup = [False]  # True if end_call was received but goodbye was injected first
             task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done))
-            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup))
+            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup))
             task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, call_completed))
 
             done, pending = await asyncio.wait([task1, task2, task3], return_when=asyncio.FIRST_COMPLETED)
@@ -402,7 +402,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
         log.error(f"Exotel→Gemini error: {e}")
 
 
-async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, first_turn_done: list, session_data: list, call_completed: list, goodbye_spoken: list = None, pending_hangup: list = None):
+async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, first_turn_done: list, session_data: list, call_completed: list, goodbye_spoken: list = None, pending_hangup: list = None):
     """Kavitha's voice (Gemini) -> candidate."""
     if goodbye_spoken is None:
         goodbye_spoken = [False]
@@ -507,6 +507,7 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
 
             if server_content.get("turnComplete") or server_content.get("generationComplete"):
                 first_turn_done[0] = True  # Kavitha finished — candidate audio now live
+                last_speech_ts[0] = time.time()  # reset silence timer — give candidate fresh time to respond
                 if candidate_buf:
                     log.info(f"Candidate: {''.join(candidate_buf)}")
                     candidate_buf.clear()
@@ -543,7 +544,7 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
 
 async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: list, call_completed: list):
     """Nudge Gemini if candidate has not spoken (no VAD activity) for 10 seconds after first turn."""
-    SILENCE_TIMEOUT = 10  # seconds of no VAD speech activity before nudging
+    SILENCE_TIMEOUT = 15  # seconds of no VAD speech activity before nudging
     CHECK_INTERVAL  = 2   # how often to check
 
     await asyncio.sleep(5)  # give call time to start
