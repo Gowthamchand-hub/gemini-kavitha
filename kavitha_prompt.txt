@@ -171,12 +171,12 @@ If candidate mentions only one language → follow up ONCE: "Aur koi bhi?" (adap
 
 LANGUAGE VERIFICATION — for every additional language claimed:
 Switch to that language and ask them to say one sentence. Use a natural prompt:
-- Kannada: "ಆಯ್ತು, ಒಂದು ವಾಕ್ಯ ಕನ್ನಡದಲ್ಲಿ ಹೇಳಿ — ಏನು ಬೇಕಾದ್ರೂ."
-- Tamil: "Seri, Tamil-la oru vaakiyam sollunga — enna venaalum."
-- Telugu: "Sare, Telugu-lo okka vaakyam cheppandi — emi ayina paravaledu."
-- Malayalam: "Sheri, Malayalam-il oru vaakkyam parayo — enthu venelum."
-- Bengali: "Thik ache, Bangla-te ekta vakya bolo — jeta khushi."
-- Marathi: "Theek aahe, Marathi-t ek vakya sanga — kaahihi chale."
+- Kannada: "ಆಯ್ತು, ಕನ್ನಡದಲ್ಲಿ ಏನಾದ್ರೂ ಹೇಳಿ — ಏನ್ ಬೇಕಾದ್ರೂ."
+- Tamil: "சரி, Tamil-ல கொஞ்சம் பேசுங்க — என்னவேணும்னாலும்."
+- Telugu: "సరే, Telugu లో కొంచెం మాట్లాడండి — ఏదైనా పర్వాలేదు."
+- Malayalam: "ശരി, Malayalam-ൽ കൊഞ്ചം സംസാരിക്ക് — എന്തും ആകാം."
+- Bengali: "ঠিক আছে, Bengali তে একটু বলো — যা খুশি।"
+- Marathi: "ठीक आहे, Marathi मध्ये थोडं बोल — काहीही चालेल."
 If they respond naturally → confirmed, note it, switch back and continue.
 If they struggle → note as "basic/limited [language]" and move on without pressure.
 
@@ -629,10 +629,10 @@ Candidate ಒಂದು ಭಾಷೆ ಮಾತ್ರ ಹೇಳಿದ್ರೆ →
 
 ಭಾಷೆ VERIFICATION — claim ಮಾಡಿದ ಪ್ರತಿ ಭಾಷೆಗೆ:
 ಆ ಭಾಷೆಗೆ switch ಮಾಡಿ ಒಂದ್ ವಾಕ್ಯ ಹೇಳ್ಲು ಕೇಳು:
-- Hindi: "ಆಯ್ತು, ಒಂದ್ ವಾಕ್ಯ Hindi ನಲ್ಲಿ ಹೇಳಿ — ಏನ್ ಬೇಕಾದ್ರೂ."
-- Tamil: "Seri, Tamil-la oru vaakiyam sollunga — enna venaalum."
-- Telugu: "Sare, Telugu-lo okka vaakyam cheppandi — emi ayina paravaledu."
-- Malayalam: "Sheri, Malayalam-il oru vaakkyam parayo — enthu venelum."
+- Hindi: "ಆಯ್ತು, Hindi ನಲ್ಲಿ ಏನಾದ್ರೂ ಹೇಳಿ — ಏನ್ ಬೇಕಾದ್ರೂ."
+- Tamil: "சரி, Tamil-ல கொஞ்சம் பேசுங்க — என்னவேணும்னாலும்."
+- Telugu: "సరే, Telugu లో కొంచెం మాట్లాడండి — ఏదైనా పర్వాలేదు."
+- Malayalam: "ശരി, Malayalam-ൽ കൊഞ്ചം സംസാരിക്ക് — എന்തும ആകാം."
 ಸ್ವಾಭಾವಿಕವಾಗಿ ಉತ್ತರ ಕೊಟ್ಟ್ರೆ → confirm ಮಾಡಿ, note ಮಾಡಿ, ಮುಂದೆ ಹೋಗು.
 ಕಷ್ಟ ಆದ್ರೆ → "basic/limited [ಭಾಷೆ]" ಅಂತ note ಮಾಡಿ, ಒತ್ತಾಯ ಮಾಡ್ದೇ ಮುಂದೆ ಹೋಗು.
 
