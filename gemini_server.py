@@ -101,6 +101,46 @@ def _save_to_sheet_sync(data: dict):
     sheet.append_row(row)
     log.info(f"Saved to sheet: {data.get('name', 'Unknown')}")
 
+TRANSCRIPT_SHEET_NAME = "call-transcripts"
+TRANSCRIPT_HEADERS = ["Timestamp", "Phone", "Name", "Status", "Transcript"]
+
+async def save_transcript(data: dict, conversation_log: list):
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _save_transcript_sync, data, conversation_log)
+    except Exception as e:
+        log.error(f"save_transcript error: {e}")
+
+def _save_transcript_sync(data: dict, conversation_log: list):
+    try:
+        creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        if not creds_json:
+            return
+        creds_dict = json.loads(creds_json)
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_key(SHEET_ID)
+        try:
+            sheet = spreadsheet.worksheet(TRANSCRIPT_SHEET_NAME)
+        except gspread.exceptions.WorksheetNotFound:
+            sheet = spreadsheet.add_worksheet(title=TRANSCRIPT_SHEET_NAME, rows=1000, cols=5)
+        first_row = sheet.row_values(1)
+        if first_row != TRANSCRIPT_HEADERS:
+            sheet.insert_row(TRANSCRIPT_HEADERS, 1)
+        transcript_text = "\n".join(conversation_log)
+        row = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            data.get("phone", ""),
+            data.get("name", ""),
+            data.get("status", ""),
+            transcript_text,
+        ]
+        sheet.append_row(row)
+        log.info(f"Transcript saved for {data.get('name', 'Unknown')}")
+    except Exception as e:
+        log.error(f"_save_transcript_sync error: {e}")
+
 # ---------------------------------------------------------------------------
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -244,6 +284,7 @@ async def stream(exotel_ws: WebSocket):
                     info = evt.get("start", {})
                     stream_sid = info.get("stream_sid") or info.get("streamSid", "")
                     stream_sid_holder.append(stream_sid)
+                    caller_phone = info.get("from", "") or info.get("caller", "")
                     log.info(f"Stream started — streamSid: {stream_sid}")
                     break
 
@@ -256,12 +297,13 @@ async def stream(exotel_ws: WebSocket):
             nudge_pending  = [False] # True after watchdog nudge sent — cleared on Kavitha's turnComplete
             resample_state = [None]
             first_turn_done = [False]  # True after Kavitha's first message — ignore candidate audio until then
-            session_data = [{}]       # incremental candidate data collected during call
+            session_data = [{"phone": caller_phone}]  # incremental candidate data collected during call
             call_completed = [False]  # True if save_candidate was called (full completion)
             goodbye_spoken = [False]  # True if goodbye phrase detected in Kavitha's speech
             pending_hangup = [False]  # True if end_call was received but goodbye was injected first
+            conversation_log = []     # full transcript: ["Kavitha: ...", "Candidate: ...", ...]
             task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done))
-            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, nudge_pending, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup))
+            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, nudge_pending, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup, conversation_log))
             task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, nudge_pending, call_completed, goodbye_spoken))
 
             done, pending = await asyncio.wait([task1, task2, task3], return_when=asyncio.FIRST_COMPLETED)
@@ -277,6 +319,9 @@ async def stream(exotel_ws: WebSocket):
                 partial = dict(session_data[0])
                 partial["status"] = "Incomplete"
                 await save_to_sheet(partial)
+            # Save transcript
+            if conversation_log:
+                await save_transcript(session_data[0], conversation_log)
             try:
                 await gemini_ws.close()
             except Exception:
@@ -403,12 +448,14 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
         log.error(f"Exotel→Gemini error: {e}")
 
 
-async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, nudge_pending: list, first_turn_done: list, session_data: list, call_completed: list, goodbye_spoken: list = None, pending_hangup: list = None):
+async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, nudge_pending: list, first_turn_done: list, session_data: list, call_completed: list, goodbye_spoken: list = None, pending_hangup: list = None, conversation_log: list = None):
     """Kavitha's voice (Gemini) -> candidate."""
     if goodbye_spoken is None:
         goodbye_spoken = [False]
     if pending_hangup is None:
         pending_hangup = [False]
+    if conversation_log is None:
+        conversation_log = []
     kavitha_buf = []
     candidate_buf = []
 
@@ -511,11 +558,14 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 last_speech_ts[0] = time.time()  # reset silence timer — give candidate fresh time to respond
                 nudge_pending[0] = False  # Kavitha responded to nudge — allow next nudge if needed
                 if candidate_buf:
-                    log.info(f"Candidate: {''.join(candidate_buf)}")
+                    text = ''.join(candidate_buf)
+                    log.info(f"Candidate: {text}")
+                    conversation_log.append(f"Candidate: {text}")
                     candidate_buf.clear()
                 if kavitha_buf:
                     full_text = ''.join(kavitha_buf)
                     log.info(f"Kavitha: {full_text}")
+                    conversation_log.append(f"Kavitha: {full_text}")
                     kavitha_buf.clear()
                     # Track goodbye, hangup when injected goodbye finishes
                     goodbye_phrases = ["good day", "lekar aayiye", "passport photo", "aapka number hata", "shukriya aapka time", "bahut shukriya"]
