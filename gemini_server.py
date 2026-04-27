@@ -262,7 +262,7 @@ async def stream(exotel_ws: WebSocket):
             pending_hangup = [False]  # True if end_call was received but goodbye was injected first
             task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done))
             task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, nudge_pending, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup))
-            task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, nudge_pending, call_completed))
+            task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, nudge_pending, call_completed, goodbye_spoken))
 
             done, pending = await asyncio.wait([task1, task2, task3], return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -544,9 +544,9 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             pass
 
 
-async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: list, nudge_pending: list, call_completed: list):
-    """Nudge Gemini once if candidate has not spoken for 15s. Wait for Kavitha to respond before nudging again."""
-    SILENCE_TIMEOUT = 15  # seconds of no VAD speech activity before nudging
+async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: list, nudge_pending: list, call_completed: list, goodbye_spoken: list = None):
+    """Nudge Gemini once if candidate has not spoken for 20s. Stops after goodbye is spoken."""
+    SILENCE_TIMEOUT = 20  # seconds of no VAD speech activity before nudging
     CHECK_INTERVAL  = 2   # how often to check
 
     await asyncio.sleep(5)  # give call time to start
@@ -558,6 +558,8 @@ async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: li
             if not first_turn_done[0]:
                 last_speech_ts[0] = time.time()
                 continue
+            if goodbye_spoken and goodbye_spoken[0]:
+                break  # goodbye said — stop watchdog entirely
             if nudge_pending[0]:
                 continue  # already nudged — wait for Kavitha to finish responding before nudging again
             elapsed = time.time() - last_speech_ts[0]
