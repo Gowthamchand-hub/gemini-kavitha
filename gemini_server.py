@@ -595,12 +595,14 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
 
 
 async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: list, nudge_pending: list, call_completed: list, goodbye_spoken: list = None):
-    """Nudge Gemini once if candidate has not spoken for 20s. Stops after goodbye is spoken."""
-    SILENCE_TIMEOUT = 20  # seconds of no VAD speech activity before nudging
+    """Say 'hello' every 5s of silence. End call after 4 unanswered hellos."""
+    SILENCE_TIMEOUT = 5   # seconds of silence before saying hello
     CHECK_INTERVAL  = 2   # how often to check
+    MAX_HELLOS      = 4   # end call after this many unanswered hellos
 
     await asyncio.sleep(5)  # give call time to start
     last_speech_ts[0] = time.time()  # reset baseline
+    hello_count = 0
 
     try:
         while not call_completed[0]:
@@ -609,17 +611,29 @@ async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: li
                 last_speech_ts[0] = time.time()
                 continue
             if goodbye_spoken and goodbye_spoken[0]:
-                break  # goodbye said — stop watchdog entirely
+                break
             if nudge_pending[0]:
-                continue  # already nudged — wait for Kavitha to finish responding before nudging again
+                continue  # wait for Kavitha to finish before next hello
             elapsed = time.time() - last_speech_ts[0]
             if elapsed >= SILENCE_TIMEOUT:
-                log.info(f"Silence watchdog: {elapsed:.1f}s — nudging Kavitha")
-                nudge_pending[0] = True  # block further nudges until Kavitha's turnComplete clears this
+                hello_count += 1
+                log.info(f"Silence watchdog: {elapsed:.1f}s — hello #{hello_count}")
+                nudge_pending[0] = True
+                if hello_count >= MAX_HELLOS:
+                    log.info("No response after 4 hellos — ending call")
+                    try:
+                        await gemini_ws.send(json.dumps({
+                            "realtimeInput": {
+                                "text": "The candidate has not responded after several attempts. Say a brief goodbye and end the call now."
+                            }
+                        }))
+                    except Exception:
+                        pass
+                    break
                 try:
                     await gemini_ws.send(json.dumps({
                         "realtimeInput": {
-                            "text": "The candidate has been silent for several seconds. Ask them politely if they are still there, in the language you are currently speaking."
+                            "text": "The candidate has been silent. IMPORTANT: if you are currently waiting for them on purpose — for example they said 'wait', 'ek second', 'ruko', or you told them to take their time (like for a reference number) — then stay completely silent and do NOT say anything. Only if the silence is unexpected, say 'Hello?' in the language you are currently speaking."
                         }
                     }))
                 except Exception:
