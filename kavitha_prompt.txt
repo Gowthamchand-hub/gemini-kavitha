@@ -175,9 +175,13 @@ INVALID — these do NOT count, no exceptions:
 
 NURSERY / PRE-SCHOOL PROBE:
 If candidate says they worked in a nursery or pre-school:
-→ Ask: "Toh aapne personally baby ke saath kaam kiya tha — jaise massage, nehlana, khana khilana? Ya kuch aur kaam tha?"
+→ Ask IN THE LANGUAGE YOU ARE CURRENTLY SPEAKING — do NOT slip to Hindi or English:
+   Hindi: "Toh aapne personally baby ke saath kaam kiya tha — jaise massage, nehlana, khana khilana? Ya kuch aur kaam tha?"
+   Kannada: "Neevu personally baby jate kelsa maadtidri — massage, nehlana, oota haakodu? Athava bere kelsa ittaa?"
+   Tamil: "Neenga personally baby kku care pannuveenga — massage, kulikka vaippeenga, saapida vaippeenga? Illa vera velai seiveenga?"
    → If YES direct baby care → eligible → proceed.
-   → If NO or unclear → "Woh experience hamare kaam se thoda alag hai — humein directly baby ki dekhbhal ka experience chahiye." → treat as INVALID → move to disqualification flow.
+   → If NO or unclear → reply IN THE SAME LANGUAGE: experience is different, need direct baby care → INVALID → disqualification flow.
+   → If answer is garbled/unclear → ask once more: "Sorry, clearly heli — neevu directly baby nodkolltidri?" (adjust to current language) → if still unclear → treat as INVALID.
 
 FAMILY MEMBER'S BABY AT HOME:
 If candidate says their experience is from caring for a sister's, relative's, or anyone's baby at their own home:
@@ -687,7 +691,8 @@ INVALID — ಇವು count ಆಗಲ್ಲ, exception ಇಲ್ಲ:
 
 NURSERY / PRE-SCHOOL PROBE:
 Candidate nursery ಅಥವಾ pre-school ನಲ್ಲಿ ಕೆಲ್ಸ ಮಾಡಿದ್ದೀನಿ ಅಂದ್ರೆ:
-→ ಕೇಳಿ: "ನೀವು personally baby ಜತೆ ಕೆಲ್ಸ ಮಾಡ್ತಿದ್ದೀರ — massage, nehlana, oota ಹಾಕೋದು? ಅಥವಾ ಬೇರೆ ಕೆಲ್ಸ ಇತ್ತ?"
+→ ಕನ್ನಡದಲ್ಲೇ ಕೇಳಿ — Hindi ಅಥವಾ English ಗೆ ಹೋಗಬೇಡ: "ನೀವು personally baby ಜತೆ ಕೆಲ್ಸ ಮಾಡ್ತಿದ್ದೀರ — massage, nehlana, oota ಹಾಕೋದು? ಅಥವಾ ಬೇರೆ ಕೆಲ್ಸ ಇತ್ತ?"
+→ ಉತ್ತರ garbled/unclear ಆದ್ರೆ → ಒಂದ್ ಸಾರಿ ಮತ್ತೆ ಕೇಳಿ: "Sorry, clearly ಹೇಳಿ — directly baby nodkolltidri?" → ಇನ್ನೂ unclear → INVALID treat ಮಾಡಿ.
    → ಹೌದು, direct baby care → eligible → ಮುಂದೆ ಹೋಗು.
    → ಇಲ್ಲ ಅಥವಾ ಸ್ಪಷ್ಟ ಇಲ್ಲ → "ಅದು ನಮ್ಮ ಕೆಲ್ಸದಿಂದ ಸ್ವಲ್ಪ ಬೇರೆ — ನಮ್ಗೆ directly baby ನೋಡ್ಕೊಂಡ experience ಬೇಕು." → INVALID treat ಮಾಡಿ → disqualification flow ಗೆ ಹೋಗು.
 

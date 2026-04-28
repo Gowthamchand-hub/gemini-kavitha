@@ -303,9 +303,10 @@ async def stream(exotel_ws: WebSocket):
             pending_hangup = [False]  # True if end_call was received but goodbye was injected first
             conversation_log = []     # full transcript: ["Kavitha: ...", "Candidate: ...", ...]
             hello_count      = [0]    # resets when candidate speaks — shared with watchdog
+            kavitha_speaking = [False]  # True while Gemini audio is streaming — watchdog skips during this
             task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done, hello_count))
-            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, nudge_pending, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup, conversation_log))
-            task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, nudge_pending, call_completed, goodbye_spoken, hello_count))
+            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, nudge_pending, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup, conversation_log, kavitha_speaking))
+            task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, nudge_pending, call_completed, goodbye_spoken, hello_count, kavitha_speaking))
 
             done, pending = await asyncio.wait([task1, task2, task3], return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -451,7 +452,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
         log.error(f"Exotel→Gemini error: {e}")
 
 
-async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, nudge_pending: list, first_turn_done: list, session_data: list, call_completed: list, goodbye_spoken: list = None, pending_hangup: list = None, conversation_log: list = None):
+async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, nudge_pending: list, first_turn_done: list, session_data: list, call_completed: list, goodbye_spoken: list = None, pending_hangup: list = None, conversation_log: list = None, kavitha_speaking: list = None):
     """Kavitha's voice (Gemini) -> candidate."""
     if goodbye_spoken is None:
         goodbye_spoken = [False]
@@ -474,6 +475,8 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 inline_data = part.get("inlineData", {})
                 mime = inline_data.get("mimeType", "")
                 if mime.startswith("audio/"):
+                    if kavitha_speaking is not None:
+                        kavitha_speaking[0] = True
                     audio_b64 = inline_data["data"]
                     raw_audio = base64.b64decode(audio_b64)
 
@@ -557,6 +560,8 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 kavitha_buf.append(output_transcript["text"])
 
             if server_content.get("turnComplete") or server_content.get("generationComplete"):
+                if kavitha_speaking is not None:
+                    kavitha_speaking[0] = False
                 first_turn_done[0] = True  # Kavitha finished — candidate audio now live
                 last_speech_ts[0] = time.time()  # reset silence timer — give candidate fresh time to respond
                 nudge_pending[0] = False  # Kavitha responded to nudge — allow next nudge if needed
@@ -597,7 +602,7 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             pass
 
 
-async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: list, nudge_pending: list, call_completed: list, goodbye_spoken: list = None, hello_count: list = None):
+async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: list, nudge_pending: list, call_completed: list, goodbye_spoken: list = None, hello_count: list = None, kavitha_speaking: list = None):
     """Say 'hello' every 5s of silence. End call after 4 consecutive unanswered hellos."""
     SILENCE_TIMEOUT = 5   # seconds of silence before saying hello
     CHECK_INTERVAL  = 2   # how often to check
@@ -619,6 +624,9 @@ async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: li
                 break
             if nudge_pending[0]:
                 continue  # wait for Kavitha to finish before next hello
+            if kavitha_speaking and kavitha_speaking[0]:
+                last_speech_ts[0] = time.time()  # Kavitha is speaking — reset timer
+                continue
             elapsed = time.time() - last_speech_ts[0]
             if elapsed >= SILENCE_TIMEOUT:
                 hello_count[0] += 1
