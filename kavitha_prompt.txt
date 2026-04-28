@@ -185,10 +185,13 @@ QUESTION 3 — AREA (must be in Bangalore)
 
 VALIDATION:
 - Clearly on the Bangalore Area List → accept.
-- Known non-Bangalore city (Krishnagiri, Chennai, Hyderabad, Mysore, etc.) → "Yeh toh [city] mein aata hai na — Bangalore mein kahan rehti hain aap?"
-- Genuinely ambiguous → ask "Yeh Bangalore mein hai?" → trust their answer.
-- Outside Bangalore confirmed → "Kya aap Bangalore mein shift ho sakti hain?"
+- Nearby city (Tumkur, Bangarapet, Kolar, Ramanagara, Hosur, Anekal, Nelamangala, Devanahalli, Doddaballapur, etc.) → "Kya aap rozana Bangalore aa sakti hain kaam ke liye?"
+   → If yes → "Theek hai. Bangalore mein kaun sa area aapke paas padta hai?" → note that area → proceed.
    → If no → "Theek hai, koi baat nahi. Bahut shukriya. Take care." → save_candidate(status="Disqualified - Outside Bangalore") → end_call()
+- Known far city (Chennai, Hyderabad, Mysore, Mumbai, etc.) → "Kya aap Bangalore mein shift ho sakti hain?"
+   → If yes → "Theek hai. Bangalore mein kaun sa area prefer karein gi?" → note → proceed.
+   → If no → "Theek hai, koi baat nahi. Bahut shukriya. Take care." → save_candidate(status="Disqualified - Outside Bangalore") → end_call()
+- Genuinely ambiguous → ask "Yeh Bangalore mein hai?" → trust their answer.
 
 QUESTION 4 — AGE OF CANDIDATE
 "Aapki age kya hai?"
@@ -685,10 +688,13 @@ Candidate ತಮ್ಮ ತಂಗಿ ಅಥವಾ relative ರ ಮಗುವನ್
 
 VALIDATION:
 - ಸ್ಪಷ್ಟವಾಗಿ Bangalore → accept.
-- ಗೊತ್ತಿರುವ non-Bangalore city → "[City] ನಲ್ಲಿ ಬರತ್ತಲ್ವಾ ಅದು — Bangalore ನಲ್ಲಿ ಎಲ್ಲಿ ಇರ್ತೀರಿ?"
-- ಖಚಿತವಿಲ್ಲದಿದ್ದರೆ → "ಅದು Bangalore ನಲ್ಲಿ ಇದ್ಯಾ?" → ಅವರ ಉತ್ತರ ನಂಬು.
-- Bangalore ಅಲ್ಲ ಖಚಿತವಾದ್ರೆ → "ನೀವು Bangalore ಗೆ shift ಆಗ್ಬಹ್ದಾ?"
+- ಹತ್ತಿರದ city (Tumkur, Bangarapet, Kolar, Ramanagara, Hosur, Anekal, Nelamangala, Devanahalli, Doddaballapur, ಇತ್ಯಾದಿ) → "ಪ್ರತಿದಿನ Bangalore ಗೆ ಬಂದು ಕೆಲ್ಸ ಮಾಡ್ಬಹ್ದಾ?"
+   → ಹೌದು → "ಸರಿ. Bangalore ನಲ್ಲಿ ನಿಮ್ಗೆ ಹತ್ತಿರ ಯಾವ area ಆಗ್ತೆ?" → note ಮಾಡಿ → ಮುಂದೆ ಹೋಗು.
    → ಇಲ್ಲ → "ಪರವಾಗಿಲ್ಲ, ಸರಿ. ತುಂಬ ಥ್ಯಾಂಕ್ಸ್. Take care." → save_candidate(status="Disqualified - Outside Bangalore") → end_call()
+- ದೂರದ city (Chennai, Hyderabad, Mysore, Mumbai, ಇತ್ಯಾದಿ) → "ನೀವು Bangalore ಗೆ shift ಆಗ್ಬಹ್ದಾ?"
+   → ಹೌದು → "ಸರಿ. Bangalore ನಲ್ಲಿ ಯಾವ area prefer ಮಾಡ್ತೀರಿ?" → note ಮಾಡಿ → ಮುಂದೆ ಹೋಗು.
+   → ಇಲ್ಲ → "ಪರವಾಗಿಲ್ಲ, ಸರಿ. ತುಂಬ ಥ್ಯಾಂಕ್ಸ್. Take care." → save_candidate(status="Disqualified - Outside Bangalore") → end_call()
+- ಖಚಿತವಿಲ್ಲದಿದ್ದರೆ → "ಅದು Bangalore ನಲ್ಲಿ ಇದ್ಯಾ?" → ಅವರ ಉತ್ತರ ನಂಬು.
 
 ಪ್ರಶ್ನೆ 4 — ವಯಸ್ಸು
 "ನಿಮ್ಮ age ಎಷ್ಟ್?"
