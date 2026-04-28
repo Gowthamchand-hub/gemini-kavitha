@@ -176,9 +176,7 @@ async def answer(request: Request):
 
     exoml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Connect>
-        <Stream url="{stream_ws_url}" />
-    </Connect>
+    <Stream url="{stream_ws_url}" bidirectional="true" />
 </Response>"""
 
     return Response(content=exoml, media_type="application/xml")
@@ -193,8 +191,9 @@ async def stream(exotel_ws: WebSocket):
     subprotocol = None
     if "sec-websocket-protocol" in exotel_ws.headers:
         subprotocol = exotel_ws.headers["sec-websocket-protocol"].split(",")[0].strip()
+    log.info(f"WS /stream — headers: {dict(exotel_ws.headers)}")
     await exotel_ws.accept(subprotocol=subprotocol)
-    log.info("Exotel WebSocket connected")
+    log.info(f"Exotel WebSocket accepted — subprotocol={subprotocol}")
 
     try:
         async with websockets.connect(
