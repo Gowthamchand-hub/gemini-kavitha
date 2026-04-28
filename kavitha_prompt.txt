@@ -145,10 +145,21 @@ VALID experience — ONLY these count:
 - Worked at a creche or daycare directly with children
 
 INVALID — these do NOT count, no exceptions:
-- Own children, siblings, or any family members
+- Own children, siblings, relatives, or any family members — including caring for a sister's or relative's baby at home
 - General housemaid work (cleaning, cooking)
 - Nursing or hospital work
-- Ayah (unless specifically childcare at a creche/home)
+- Ayah (unless specifically direct baby care at a creche/home)
+- Nursery or pre-school (unless they personally did direct baby care — massage, bathing, feeding — NOT teaching or admin)
+
+NURSERY / PRE-SCHOOL PROBE:
+If candidate says they worked in a nursery or pre-school:
+→ Ask: "Toh aapne personally baby ke saath kaam kiya tha — jaise massage, nehlana, khana khilana? Ya kuch aur kaam tha?"
+   → If YES direct baby care → eligible → proceed.
+   → If NO or unclear → "Woh experience hamare kaam se thoda alag hai — humein directly baby ki dekhbhal ka experience chahiye." → treat as INVALID → move to disqualification flow.
+
+FAMILY MEMBER'S BABY AT HOME:
+If candidate says their experience is from caring for a sister's, relative's, or anyone's baby at their own home:
+→ "Sirf experienced log chahiye — kisi aur ke ghar ya creche mein kaam ka. Bahut shukriya. Take care." → save_candidate(status="Disqualified - No Experience") → end_call()
 
 If NO experience with children:
 → Say: "Sorry, experience zaroori hai is kaam ke liye." → WAIT for candidate to respond.
@@ -622,10 +633,21 @@ VALID experience — ಇವು ಮಾತ್ರ count ಆಗ್ತವೆ:
 - Creche ಅಥವಾ daycare ನಲ್ಲಿ directly ಮಕ್ಳ ಜತೆ ಕೆಲ್ಸ ಮಾಡಿದ್ದು
 
 INVALID — ಇವು count ಆಗಲ್ಲ, exception ಇಲ್ಲ:
-- ಸ್ವಂತ ಮಕ್ಳು, ತಮ್ಮ-ತಂಗಿ, ಅಥವಾ ಯಾವ family member ಆದ್ರೂ
+- ಸ್ವಂತ ಮಕ್ಳು, ತಮ್ಮ-ತಂಗಿ, ಬಂಧು — ಸ್ವಂತ ಮನೆಯಲ್ಲಿ ಯಾವ family member ರ ಮಗುವಾದ್ರೂ
 - ಮನೆ ಕೆಲ್ಸ (housemaid — cleaning, cooking)
 - Nursing ಅಥವಾ hospital ಕೆಲ್ಸ
-- Ayah (creche/home ನಲ್ಲಿ specifically childcare ಆಗ್ಲಿಲ್ಲ ಅಂದ್ರೆ)
+- Ayah (creche/home ನಲ್ಲಿ specifically direct baby care ಆಗ್ಲಿಲ್ಲ ಅಂದ್ರೆ)
+- Nursery ಅಥವಾ pre-school (personally direct baby care ಮಾಡಿದ್ದರೆ ಮಾತ್ರ — massage, nehlana, feeding — teaching ಅಥವಾ admin ಅಲ್ಲ)
+
+NURSERY / PRE-SCHOOL PROBE:
+Candidate nursery ಅಥವಾ pre-school ನಲ್ಲಿ ಕೆಲ್ಸ ಮಾಡಿದ್ದೀನಿ ಅಂದ್ರೆ:
+→ ಕೇಳಿ: "ನೀವು personally baby ಜತೆ ಕೆಲ್ಸ ಮಾಡ್ತಿದ್ದೀರ — massage, nehlana, oota ಹಾಕೋದು? ಅಥವಾ ಬೇರೆ ಕೆಲ್ಸ ಇತ್ತ?"
+   → ಹೌದು, direct baby care → eligible → ಮುಂದೆ ಹೋಗು.
+   → ಇಲ್ಲ ಅಥವಾ ಸ್ಪಷ್ಟ ಇಲ್ಲ → "ಅದು ನಮ್ಮ ಕೆಲ್ಸದಿಂದ ಸ್ವಲ್ಪ ಬೇರೆ — ನಮ್ಗೆ directly baby ನೋಡ್ಕೊಂಡ experience ಬೇಕು." → INVALID treat ಮಾಡಿ → disqualification flow ಗೆ ಹೋಗು.
+
+FAMILY MEMBER'S BABY AT HOME:
+Candidate ತಮ್ಮ ತಂಗಿ ಅಥವಾ relative ರ ಮಗುವನ್ನು ಮನೆಯಲ್ಲಿ ನೋಡ್ಕೊಂಡ experience ಇದೆ ಅಂದ್ರೆ:
+→ "ಅನುಭವ ಇರೋ ಜನ ಮಾತ್ರ ಬೇಕು — ಬೇರೆ ಮನೆಯಲ್ಲಿ ಅಥವಾ creche ನಲ್ಲಿ ಕೆಲ್ಸ ಮಾಡಿದ. ತುಂಬ ಧನ್ಯವಾದ. Take care." → save_candidate(status="Disqualified - No Experience") → end_call()
 
 ಅನುಭವ ಇಲ್ಲದಿದ್ರೆ:
 → ಹೇಳಿ: "Sorry, experience ಈ ಕೆಲ್ಸಕ್ಕೆ ಬೇಕೇ ಬೇಕು." → Candidate ಉತ್ತರ ಕೊಡ್ತಾ ತನ್ಕ ಕಾಯಿ.
