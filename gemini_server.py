@@ -176,7 +176,9 @@ async def answer(request: Request):
 
     exoml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Stream url="{stream_ws_url}" bidirectional="true" />
+    <Connect>
+        <Stream url="{stream_ws_url}" />
+    </Connect>
 </Response>"""
 
     return Response(content=exoml, media_type="application/xml")
@@ -275,8 +277,10 @@ async def stream(exotel_ws: WebSocket):
 
             # Wait for Exotel start event to get stream_sid
             stream_sid_holder = []
+            caller_phone = ""
             async for raw in exotel_ws.iter_text():
                 evt = json.loads(raw)
+                log.info(f"Exotel event: {raw[:300]}")
                 if evt.get("event") == "connected":
                     continue
                 if evt.get("event") == "start":
@@ -284,8 +288,9 @@ async def stream(exotel_ws: WebSocket):
                     stream_sid = info.get("stream_sid") or info.get("streamSid", "")
                     stream_sid_holder.append(stream_sid)
                     caller_phone = info.get("from", "") or info.get("caller", "")
-                    log.info(f"Stream started — streamSid: {stream_sid}")
+                    log.info(f"Stream started — streamSid: {stream_sid}, caller: {caller_phone}")
                     break
+                log.warning(f"Unexpected event before start: {evt.get('event')}")
 
             candidate_name = os.environ.get("TEST_CANDIDATE_NAME", "").strip()
             name_info = f" The candidate's name is {candidate_name}." if candidate_name else ""
