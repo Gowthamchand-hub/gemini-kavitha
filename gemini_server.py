@@ -302,9 +302,10 @@ async def stream(exotel_ws: WebSocket):
             goodbye_spoken = [False]  # True if goodbye phrase detected in Kavitha's speech
             pending_hangup = [False]  # True if end_call was received but goodbye was injected first
             conversation_log = []     # full transcript: ["Kavitha: ...", "Candidate: ...", ...]
-            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done))
+            hello_count      = [0]    # resets when candidate speaks — shared with watchdog
+            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done, hello_count))
             task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, nudge_pending, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup, conversation_log))
-            task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, nudge_pending, call_completed, goodbye_spoken))
+            task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, nudge_pending, call_completed, goodbye_spoken, hello_count))
 
             done, pending = await asyncio.wait([task1, task2, task3], return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -337,7 +338,7 @@ async def stream(exotel_ws: WebSocket):
         log.info("Stream session ended")
 
 
-async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, resample_state: list, first_turn_done: list):
+async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, resample_state: list, first_turn_done: list, hello_count: list = None):
     """Candidate's voice -> Gemini with manual VAD.
 
     State machine:
@@ -392,6 +393,8 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                             silence_chunks = 0
                             log.debug(f"VAD: speech started (rms={rms})")
                             last_speech_ts[0] = time.time()
+                            if hello_count is not None:
+                                hello_count[0] = 0  # candidate spoke — reset hello counter
                             await gemini_ws.send(json.dumps({"realtimeInput": {"activityStart": {}}}))
                             for buf in audio_buffer:
                                 await gemini_ws.send(json.dumps({
@@ -594,15 +597,17 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             pass
 
 
-async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: list, nudge_pending: list, call_completed: list, goodbye_spoken: list = None):
-    """Say 'hello' every 5s of silence. End call after 4 unanswered hellos."""
+async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: list, nudge_pending: list, call_completed: list, goodbye_spoken: list = None, hello_count: list = None):
+    """Say 'hello' every 5s of silence. End call after 4 consecutive unanswered hellos."""
     SILENCE_TIMEOUT = 5   # seconds of silence before saying hello
     CHECK_INTERVAL  = 2   # how often to check
-    MAX_HELLOS      = 4   # end call after this many unanswered hellos
+    MAX_HELLOS      = 4   # end call after this many consecutive unanswered hellos
+
+    if hello_count is None:
+        hello_count = [0]
 
     await asyncio.sleep(5)  # give call time to start
     last_speech_ts[0] = time.time()  # reset baseline
-    hello_count = 0
 
     try:
         while not call_completed[0]:
@@ -616,10 +621,10 @@ async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: li
                 continue  # wait for Kavitha to finish before next hello
             elapsed = time.time() - last_speech_ts[0]
             if elapsed >= SILENCE_TIMEOUT:
-                hello_count += 1
-                log.info(f"Silence watchdog: {elapsed:.1f}s — hello #{hello_count}")
+                hello_count[0] += 1
+                log.info(f"Silence watchdog: {elapsed:.1f}s — hello #{hello_count[0]}")
                 nudge_pending[0] = True
-                if hello_count >= MAX_HELLOS:
+                if hello_count[0] >= MAX_HELLOS:
                     log.info("No response after 4 hellos — ending call")
                     try:
                         await gemini_ws.send(json.dumps({
