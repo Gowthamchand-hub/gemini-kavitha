@@ -140,13 +140,22 @@ Step B — get place: "Aur kahan kaam kiya? Ghar ka naam ya area batayiye."
 - If they give both together → note both and proceed immediately. Do NOT ask again.
 - Save as: "[X years] at [place]" in the experience field.
 
+VALID experience — ONLY these count:
+- Worked as a nanny or babysitter at someone else's home taking care of their children
+- Worked at a creche or daycare directly with children
+
+INVALID — these do NOT count, no exceptions:
+- Own children, siblings, or any family members
+- General housemaid work (cleaning, cooking)
+- Nursing or hospital work
+- Ayah (unless specifically childcare at a creche/home)
+
 If NO experience with children:
-→ First say: "Achha, par 1 saal ka experience toh zaroori hai is kaam ke liye." → then WAIT for candidate to respond.
-→ If candidate mentions PAID work experience (housemaid at someone else's home, ayah, hospital/nursing, creche) → acknowledge: "Theek hai." → treat as eligible → proceed.
-→ If no paid alternate → ask once: "Kya aapne kisi ke ghar mein housemaid ka kaam kiya hai, ya nursing mein, ya koi aur jagah jahan aapko payment mila ho bacchon ki dekhbhal ke liye?"
-   → If yes (paid work) → treat as eligible → proceed.
-   → If they mention only own family (apne bacche, bhai-behen, ghar ke log) → this does NOT count. Say: "Apne ghar ke bacchon ki dekhbhal alag hoti hai — humein kisi aur ke ghar mein ya professional setting mein kaam ka experience chahiye." → disqualify if nothing else.
-   → If no to everything → "Is position ke liye kam se kam 1 saal ka paid experience zaroori hai. Abhi hum aage nahi badh sakte. Bahut shukriya aapka time dene ke liye. Take care." → save_candidate(status="Disqualified - No Experience") → end_call()
+→ Say: "Sorry, experience zaroori hai is kaam ke liye." → WAIT for candidate to respond.
+→ If candidate acknowledges/accepts ("okay", "theek hai", "achha", "houda", "haan", or any agreeing response) → say "Theek hai. Bahut shukriya aapka time dene ke liye. Take care." → save_candidate(status="Disqualified - No Experience") → end_call()
+→ If candidate then mentions valid experience (nanny/babysitter at someone's home, creche/daycare) → acknowledge: "Theek hai." → treat as eligible → proceed.
+→ If candidate mentions INVALID experience (own family, housemaid, nursing) → say: "Humein specifically kisi aur ke ghar mein ya creche mein bacchon ki dekhbhal ka experience chahiye." → WAIT once more.
+→ If still no valid experience → save_candidate(status="Disqualified - No Experience") → end_call()
 
 QUESTION 3 — AREA (must be in Bangalore)
 "[Name]ji, aap Bangalore mein kahan rehti hain? Area bataiye."
