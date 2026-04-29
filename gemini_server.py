@@ -172,7 +172,14 @@ app = FastAPI(title="Exotel-Gemini Kavitha Bridge")
 @app.api_route("/answer", methods=["GET", "POST"])
 async def answer(request: Request):
     stream_ws_url = f"{get_ws_base_url().rstrip('/')}/stream"
-    log.info(f"Call answered — streaming to {stream_ws_url}")
+
+    # Log all params Exotel sends so we can see call metadata
+    if request.method == "POST":
+        form = await request.form()
+        params = dict(form)
+    else:
+        params = dict(request.query_params)
+    log.info(f"Call answered — params: {params} — streaming to {stream_ws_url}")
 
     exoml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
