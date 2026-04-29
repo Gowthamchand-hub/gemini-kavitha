@@ -296,7 +296,10 @@ async def stream(exotel_ws: WebSocket):
                     log.info(f"Stream started — streamSid: {stream_sid}, caller: {caller_phone}")
                     break
 
-            # Trigger is sent by _exotel_to_gemini after ring-back ends (candidate answer detection)
+            # Pre-generate Kavitha's greeting immediately — audio is buffered until candidate answers
+            candidate_name = os.environ.get("TEST_CANDIDATE_NAME", "").strip()
+            name_info = f" The candidate's name is {candidate_name}." if candidate_name else ""
+            await gemini_ws.send(json.dumps({"realtimeInput": {"text": f"The call has just connected.{name_info} Begin the conversation now."}}))
 
             last_audio_ts = [0.0]
             last_speech_ts = [0.0]   # updated only on VAD activityStart/End — used by silence watchdog
@@ -310,8 +313,11 @@ async def stream(exotel_ws: WebSocket):
             conversation_log = []     # full transcript: ["Kavitha: ...", "Candidate: ...", ...]
             hello_count      = [0]    # resets when candidate speaks — shared with watchdog
             kavitha_speaking = [False]  # True while Gemini audio is streaming — watchdog skips during this
-            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done, hello_count))
-            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, nudge_pending, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup, conversation_log, kavitha_speaking))
+            candidate_answered = [False]  # True once ring-back ends and candidate has answered
+            pre_answer_buf = []           # Kavitha's pre-generated audio held until candidate answers
+            gemini_first_turn_done = [False]  # True once Gemini's first turnComplete fires
+            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done, hello_count, candidate_answered, pre_answer_buf, gemini_first_turn_done))
+            task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, nudge_pending, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup, conversation_log, kavitha_speaking, candidate_answered, pre_answer_buf, gemini_first_turn_done))
             task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, nudge_pending, call_completed, goodbye_spoken, hello_count, kavitha_speaking))
 
             done, pending = await asyncio.wait([task1, task2, task3], return_when=asyncio.FIRST_COMPLETED)
@@ -345,7 +351,7 @@ async def stream(exotel_ws: WebSocket):
         log.info("Stream session ended")
 
 
-async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, resample_state: list, first_turn_done: list, hello_count: list = None):
+async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, resample_state: list, first_turn_done: list, hello_count: list = None, candidate_answered: list = None, pre_answer_buf: list = None, gemini_first_turn_done: list = None):
     """Candidate's voice -> Gemini with manual VAD.
 
     State machine:
@@ -357,14 +363,20 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
     SPEECH_END_CHUNKS   = 30   # ~600ms of silence needed before activityEnd
 
     RINGBACK_RMS_THRESHOLD = 1000  # Exotel ring-back tone RMS ~5846 — well above this
-    ANSWER_QUIET_SECS = 3.0       # seconds of non-ring-back audio = candidate answered
+    ANSWER_QUIET_SECS = 2.0        # seconds of non-ring-back audio = candidate answered
 
     vad_state    = "silence"
     speech_chunks  = 0
     silence_chunks = 0
     audio_buffer   = []  # holds chunks during possible_speech
-    answered       = False
     low_rms_start  = None
+
+    if candidate_answered is None:
+        candidate_answered = [True]  # legacy: treat as already answered
+    if pre_answer_buf is None:
+        pre_answer_buf = []
+    if gemini_first_turn_done is None:
+        gemini_first_turn_done = [True]
 
     try:
         async for raw in exotel_ws.iter_text():
@@ -384,18 +396,26 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                 raw_audio, resample_state[0] = audioop.ratecv(raw_audio, 2, 1, 8000, 16000, resample_state[0])
                 rms = audioop.rms(raw_audio, 2)
 
-                if not answered:
+                if not candidate_answered[0]:
                     if rms > RINGBACK_RMS_THRESHOLD:
                         low_rms_start = None  # still hearing ring-back tone
                     else:
                         if low_rms_start is None:
                             low_rms_start = time.time()
                         elif time.time() - low_rms_start >= ANSWER_QUIET_SECS:
-                            answered = True
-                            log.info(f"Candidate answered — ring-back ended ({ANSWER_QUIET_SECS}s of quiet)")
-                            candidate_name = os.environ.get("TEST_CANDIDATE_NAME", "").strip()
-                            name_info = f" The candidate's name is {candidate_name}." if candidate_name else ""
-                            await gemini_ws.send(json.dumps({"realtimeInput": {"text": f"The call has just connected.{name_info} Begin the conversation now."}}))
+                            candidate_answered[0] = True
+                            log.info(f"Candidate answered — ring-back ended ({ANSWER_QUIET_SECS}s of quiet) — flushing {len(pre_answer_buf)} buffered chunks")
+                            # Flush pre-generated audio immediately
+                            to_flush = list(pre_answer_buf)
+                            pre_answer_buf.clear()
+                            for chunk in to_flush:
+                                try:
+                                    await exotel_ws.send_text(chunk)
+                                except Exception:
+                                    break
+                            if gemini_first_turn_done[0] and not first_turn_done[0]:
+                                first_turn_done[0] = True
+                                last_speech_ts[0] = time.time()
                     continue
 
                 if not first_turn_done[0]:
@@ -478,7 +498,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
         log.error(f"Exotel→Gemini error: {e}")
 
 
-async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, nudge_pending: list, first_turn_done: list, session_data: list, call_completed: list, goodbye_spoken: list = None, pending_hangup: list = None, conversation_log: list = None, kavitha_speaking: list = None):
+async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, nudge_pending: list, first_turn_done: list, session_data: list, call_completed: list, goodbye_spoken: list = None, pending_hangup: list = None, conversation_log: list = None, kavitha_speaking: list = None, candidate_answered: list = None, pre_answer_buf: list = None, gemini_first_turn_done: list = None):
     """Kavitha's voice (Gemini) -> candidate."""
     if goodbye_spoken is None:
         goodbye_spoken = [False]
@@ -486,6 +506,12 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
         pending_hangup = [False]
     if conversation_log is None:
         conversation_log = []
+    if candidate_answered is None:
+        candidate_answered = [True]
+    if pre_answer_buf is None:
+        pre_answer_buf = []
+    if gemini_first_turn_done is None:
+        gemini_first_turn_done = [True]
     kavitha_buf = []
     candidate_buf = []
 
@@ -521,14 +547,27 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
 
                     audio_b64 = base64.b64encode(raw_audio).decode()
                     stream_sid = stream_sid_holder[0] if stream_sid_holder else ""
-                    try:
-                        await exotel_ws.send_text(json.dumps({
-                            "event": "media",
-                            "streamSid": stream_sid,
-                            "media": {"payload": audio_b64},
-                        }))
-                    except Exception:
-                        break
+                    msg = json.dumps({
+                        "event": "media",
+                        "streamSid": stream_sid,
+                        "media": {"payload": audio_b64},
+                    })
+                    if not candidate_answered[0]:
+                        pre_answer_buf.append(msg)  # buffer until candidate picks up
+                    else:
+                        # Flush any buffered audio first
+                        if pre_answer_buf:
+                            to_flush = list(pre_answer_buf)
+                            pre_answer_buf.clear()
+                            for buffered in to_flush:
+                                try:
+                                    await exotel_ws.send_text(buffered)
+                                except Exception:
+                                    break
+                        try:
+                            await exotel_ws.send_text(msg)
+                        except Exception:
+                            break
 
             # Handle tool calls
             tool_call = data.get("toolCall", {})
@@ -588,9 +627,21 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
             if server_content.get("turnComplete") or server_content.get("generationComplete"):
                 if kavitha_speaking is not None:
                     kavitha_speaking[0] = False
-                first_turn_done[0] = True  # Kavitha finished — candidate audio now live
-                last_speech_ts[0] = time.time()  # reset silence timer — give candidate fresh time to respond
-                nudge_pending[0] = False  # Kavitha responded to nudge — allow next nudge if needed
+                nudge_pending[0] = False
+                if candidate_answered[0]:
+                    # Flush any remaining buffered audio
+                    if pre_answer_buf:
+                        to_flush = list(pre_answer_buf)
+                        pre_answer_buf.clear()
+                        for buffered in to_flush:
+                            try:
+                                await exotel_ws.send_text(buffered)
+                            except Exception:
+                                pass
+                    first_turn_done[0] = True
+                    last_speech_ts[0] = time.time()
+                else:
+                    gemini_first_turn_done[0] = True  # Kavitha done — waiting for candidate to answer
                 if candidate_buf:
                     text = ''.join(candidate_buf)
                     log.info(f"Candidate: {text}")
