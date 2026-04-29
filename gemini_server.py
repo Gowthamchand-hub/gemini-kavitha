@@ -421,7 +421,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                                 # Gemini already done → _gemini_to_exotel is blocked → safe to flush from here
                                 to_flush = list(pre_answer_buf)
                                 pre_answer_buf.clear()
-                                audio_secs = _pcm_duration(to_flush)
+                                audio_secs = max(_pcm_duration(to_flush), 5.0)
                                 log.info(f"Flushing {len(to_flush)} chunks (~{audio_secs:.1f}s audio)")
                                 for chunk in to_flush:
                                     try:
@@ -640,16 +640,19 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                     if pre_answer_buf:
                         to_flush = list(pre_answer_buf)
                         pre_answer_buf.clear()
-                        audio_secs = _pcm_duration(to_flush)
+                        audio_secs = max(_pcm_duration(to_flush), 5.0)
                         for buffered in to_flush:
                             try:
                                 await exotel_ws.send_text(buffered)
                             except Exception:
                                 pass
+                        first_turn_done[0] = True
                         last_speech_ts[0] = time.time() + audio_secs
-                    else:
-                        last_speech_ts[0] = time.time()
-                    first_turn_done[0] = True
+                    elif not first_turn_done[0]:
+                        # Pre-answer buf empty but first turn not done — unlikely, handle safely
+                        first_turn_done[0] = True
+                        last_speech_ts[0] = time.time() + 5.0
+                    # else: _exotel_to_gemini already flushed and set last_speech_ts — don't reset
                 else:
                     gemini_first_turn_done[0] = True  # Kavitha done — waiting for candidate to answer
                 if candidate_buf:
