@@ -200,7 +200,6 @@ async def stream(exotel_ws: WebSocket):
     subprotocol = None
     if "sec-websocket-protocol" in exotel_ws.headers:
         subprotocol = exotel_ws.headers["sec-websocket-protocol"].split(",")[0].strip()
-    log.info(f"WS /stream — headers: {dict(exotel_ws.headers)}")
     await exotel_ws.accept(subprotocol=subprotocol)
     log.info(f"Exotel WebSocket accepted — subprotocol={subprotocol}")
 
@@ -295,14 +294,6 @@ async def stream(exotel_ws: WebSocket):
                     stream_sid_holder.append(stream_sid)
                     caller_phone = info.get("from", "") or info.get("caller", "")
                     log.info(f"Stream started — streamSid: {stream_sid}, caller: {caller_phone}")
-                    # Wait for ring-back to complete before triggering Kavitha.
-                    # Ring-back fires immediately at stream start (before candidate answers).
-                    # Sleep 3s here + ~3s Gemini warmup = Kavitha speaks at ~T+6s,
-                    # which lands just after typical 5s Indian ring-back.
-                    await asyncio.sleep(2)
-                    log.info("Ring-back wait done — starting Kavitha")
-                    break
-                if evt.get("event") == "stop":
                     break
 
             candidate_name = os.environ.get("TEST_CANDIDATE_NAME", "").strip()
