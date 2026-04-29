@@ -285,9 +285,11 @@ async def stream(exotel_ws: WebSocket):
             # Wait for Exotel start event to get stream_sid
             stream_sid_holder = []
             caller_phone = ""
+            ANSWER_RMS_THRESHOLD = 80   # RMS above silence/ringing noise floor
+            ANSWER_CHUNKS_NEEDED = 8    # ~160ms of audio above threshold = candidate picked up
+            energy_count = 0
             async for raw in exotel_ws.iter_text():
                 evt = json.loads(raw)
-                log.info(f"Exotel event: {raw[:300]}")
                 if evt.get("event") == "connected":
                     continue
                 if evt.get("event") == "start":
@@ -296,13 +298,23 @@ async def stream(exotel_ws: WebSocket):
                     stream_sid_holder.append(stream_sid)
                     caller_phone = info.get("from", "") or info.get("caller", "")
                     log.info(f"Stream started — streamSid: {stream_sid}, caller: {caller_phone}")
-                    # Don't break — wait for first media event (candidate picked up)
                     continue
                 if evt.get("event") == "media" and stream_sid_holder:
-                    # First media = candidate answered — trigger Kavitha now
-                    log.info("First media received — candidate answered, starting Kavitha")
+                    try:
+                        raw_audio = base64.b64decode(evt["media"]["payload"])
+                        rms = audioop.rms(raw_audio, 2)
+                        if rms > ANSWER_RMS_THRESHOLD:
+                            energy_count += 1
+                            if energy_count >= ANSWER_CHUNKS_NEEDED:
+                                log.info(f"Candidate answered — audio energy detected (rms={rms}), starting Kavitha")
+                                break
+                        else:
+                            energy_count = 0
+                    except Exception:
+                        pass
+                    continue
+                if evt.get("event") == "stop":
                     break
-                log.warning(f"Unexpected event before start: {evt.get('event')}")
 
             candidate_name = os.environ.get("TEST_CANDIDATE_NAME", "").strip()
             name_info = f" The candidate's name is {candidate_name}." if candidate_name else ""
