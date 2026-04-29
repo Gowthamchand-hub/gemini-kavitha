@@ -285,9 +285,6 @@ async def stream(exotel_ws: WebSocket):
             # Wait for Exotel start event to get stream_sid
             stream_sid_holder = []
             caller_phone = ""
-            ANSWER_RMS_THRESHOLD = 80   # RMS above silence/ringing noise floor
-            ANSWER_CHUNKS_NEEDED = 8    # ~160ms of audio above threshold = candidate picked up
-            energy_count = 0
             async for raw in exotel_ws.iter_text():
                 evt = json.loads(raw)
                 if evt.get("event") == "connected":
@@ -298,21 +295,13 @@ async def stream(exotel_ws: WebSocket):
                     stream_sid_holder.append(stream_sid)
                     caller_phone = info.get("from", "") or info.get("caller", "")
                     log.info(f"Stream started — streamSid: {stream_sid}, caller: {caller_phone}")
-                    continue
-                if evt.get("event") == "media" and stream_sid_holder:
-                    try:
-                        raw_audio = base64.b64decode(evt["media"]["payload"])
-                        rms = audioop.rms(raw_audio, 2)
-                        if rms > ANSWER_RMS_THRESHOLD:
-                            energy_count += 1
-                            if energy_count >= ANSWER_CHUNKS_NEEDED:
-                                log.info(f"Candidate answered — audio energy detected (rms={rms}), starting Kavitha")
-                                break
-                        else:
-                            energy_count = 0
-                    except Exception:
-                        pass
-                    continue
+                    # Wait for ring-back to complete before triggering Kavitha.
+                    # Ring-back fires immediately at stream start (before candidate answers).
+                    # Sleep 3s here + ~3s Gemini warmup = Kavitha speaks at ~T+6s,
+                    # which lands just after typical 5s Indian ring-back.
+                    await asyncio.sleep(3)
+                    log.info("Ring-back wait done — starting Kavitha")
+                    break
                 if evt.get("event") == "stop":
                     break
 
