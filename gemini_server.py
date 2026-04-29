@@ -165,6 +165,18 @@ with open(_prompt_path, "r", encoding="utf-8") as _f:
 app = FastAPI(title="Exotel-Gemini Kavitha Bridge")
 
 
+def _pcm_duration(chunks: list) -> float:
+    """Return playback duration (seconds) of a list of Exotel media JSON strings (8kHz PCM16)."""
+    total_samples = 0
+    for chunk_json in chunks:
+        try:
+            payload = json.loads(chunk_json)["media"]["payload"]
+            total_samples += len(base64.b64decode(payload)) // 2
+        except Exception:
+            pass
+    return total_samples / 8000.0
+
+
 # ---------------------------------------------------------------------------
 # /answer — Exotel hits this when candidate picks up
 # ---------------------------------------------------------------------------
@@ -409,6 +421,8 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                                 # Gemini already done → _gemini_to_exotel is blocked → safe to flush from here
                                 to_flush = list(pre_answer_buf)
                                 pre_answer_buf.clear()
+                                audio_secs = _pcm_duration(to_flush)
+                                log.info(f"Flushing {len(to_flush)} chunks (~{audio_secs:.1f}s audio)")
                                 for chunk in to_flush:
                                     try:
                                         await exotel_ws.send_text(chunk)
@@ -416,7 +430,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                                         break
                                 if not first_turn_done[0]:
                                     first_turn_done[0] = True
-                                    last_speech_ts[0] = time.time()
+                                    last_speech_ts[0] = time.time() + audio_secs
                             # Else: Gemini still generating → _gemini_to_exotel will flush at turnComplete
                     continue
 
@@ -623,17 +637,19 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                     kavitha_speaking[0] = False
                 nudge_pending[0] = False
                 if candidate_answered[0]:
-                    # Flush any remaining buffered audio
                     if pre_answer_buf:
                         to_flush = list(pre_answer_buf)
                         pre_answer_buf.clear()
+                        audio_secs = _pcm_duration(to_flush)
                         for buffered in to_flush:
                             try:
                                 await exotel_ws.send_text(buffered)
                             except Exception:
                                 pass
+                        last_speech_ts[0] = time.time() + audio_secs
+                    else:
+                        last_speech_ts[0] = time.time()
                     first_turn_done[0] = True
-                    last_speech_ts[0] = time.time()
                 else:
                     gemini_first_turn_done[0] = True  # Kavitha done — waiting for candidate to answer
                 if candidate_buf:
