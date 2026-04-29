@@ -363,7 +363,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
     SPEECH_END_CHUNKS   = 30   # ~600ms of silence needed before activityEnd
 
     RINGBACK_RMS_THRESHOLD = 1000  # Exotel ring-back tone RMS ~5846 — well above this
-    ANSWER_QUIET_SECS = 2.0        # seconds of non-ring-back audio = candidate answered
+    ANSWER_QUIET_SECS = 2.5        # seconds of non-ring-back audio = candidate answered (ring-off ~2s, need margin)
 
     vad_state    = "silence"
     speech_chunks  = 0
@@ -404,18 +404,20 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                             low_rms_start = time.time()
                         elif time.time() - low_rms_start >= ANSWER_QUIET_SECS:
                             candidate_answered[0] = True
-                            log.info(f"Candidate answered — ring-back ended ({ANSWER_QUIET_SECS}s of quiet) — flushing {len(pre_answer_buf)} buffered chunks")
-                            # Flush pre-generated audio immediately
-                            to_flush = list(pre_answer_buf)
-                            pre_answer_buf.clear()
-                            for chunk in to_flush:
-                                try:
-                                    await exotel_ws.send_text(chunk)
-                                except Exception:
-                                    break
-                            if gemini_first_turn_done[0] and not first_turn_done[0]:
-                                first_turn_done[0] = True
-                                last_speech_ts[0] = time.time()
+                            log.info(f"Candidate answered — ring-back ended ({ANSWER_QUIET_SECS}s of quiet), {len(pre_answer_buf)} chunks buffered")
+                            if gemini_first_turn_done[0]:
+                                # Gemini already done → _gemini_to_exotel is blocked → safe to flush from here
+                                to_flush = list(pre_answer_buf)
+                                pre_answer_buf.clear()
+                                for chunk in to_flush:
+                                    try:
+                                        await exotel_ws.send_text(chunk)
+                                    except Exception:
+                                        break
+                                if not first_turn_done[0]:
+                                    first_turn_done[0] = True
+                                    last_speech_ts[0] = time.time()
+                            # Else: Gemini still generating → _gemini_to_exotel will flush at turnComplete
                     continue
 
                 if not first_turn_done[0]:
@@ -552,18 +554,10 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                         "streamSid": stream_sid,
                         "media": {"payload": audio_b64},
                     })
-                    if not candidate_answered[0]:
-                        pre_answer_buf.append(msg)  # buffer until candidate picks up
+                    if not candidate_answered[0] or pre_answer_buf:
+                        # Buffer: not yet answered, OR answered but first turn still flushing at turnComplete
+                        pre_answer_buf.append(msg)
                     else:
-                        # Flush any buffered audio first
-                        if pre_answer_buf:
-                            to_flush = list(pre_answer_buf)
-                            pre_answer_buf.clear()
-                            for buffered in to_flush:
-                                try:
-                                    await exotel_ws.send_text(buffered)
-                                except Exception:
-                                    break
                         try:
                             await exotel_ws.send_text(msg)
                         except Exception:
