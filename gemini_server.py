@@ -183,15 +183,17 @@ def _pcm_duration(chunks: list) -> float:
 
 @app.api_route("/answer", methods=["GET", "POST"])
 async def answer(request: Request):
-    stream_ws_url = f"{get_ws_base_url().rstrip('/')}/stream"
+    base = get_ws_base_url().rstrip('/')
+    # ?outbound=1 is appended by outbound_call.py — inbound calls won't have it
+    is_outbound = request.query_params.get("outbound") == "1"
+    stream_ws_url = f"{base}/stream?outbound={'1' if is_outbound else '0'}"
 
-    # Log all params Exotel sends so we can see call metadata
     if request.method == "POST":
         form = await request.form()
         params = dict(form)
     else:
         params = dict(request.query_params)
-    log.info(f"Call answered — params: {params} — streaming to {stream_ws_url}")
+    log.info(f"Call answered ({'outbound' if is_outbound else 'inbound'}) — params: {params} — streaming to {stream_ws_url}")
 
     exoml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -208,12 +210,13 @@ async def answer(request: Request):
 # ---------------------------------------------------------------------------
 
 @app.websocket("/stream")
-async def stream(exotel_ws: WebSocket):
+async def stream(exotel_ws: WebSocket, outbound: str = "0"):
     subprotocol = None
     if "sec-websocket-protocol" in exotel_ws.headers:
         subprotocol = exotel_ws.headers["sec-websocket-protocol"].split(",")[0].strip()
     await exotel_ws.accept(subprotocol=subprotocol)
-    log.info(f"Exotel WebSocket accepted — subprotocol={subprotocol}")
+    is_outbound = outbound == "1"
+    log.info(f"Exotel WebSocket accepted — subprotocol={subprotocol}, outbound={is_outbound}")
 
     try:
         async with websockets.connect(
@@ -325,7 +328,7 @@ async def stream(exotel_ws: WebSocket):
             conversation_log = []     # full transcript: ["Kavitha: ...", "Candidate: ...", ...]
             hello_count      = [0]    # resets when candidate speaks — shared with watchdog
             kavitha_speaking = [False]  # True while Gemini audio is streaming — watchdog skips during this
-            candidate_answered = [False]  # True once ring-back ends and candidate has answered
+            candidate_answered = [not is_outbound]  # inbound: already answered; outbound: wait for ring-back to end
             pre_answer_buf = []           # Kavitha's pre-generated audio held until candidate answers
             gemini_first_turn_done = [False]  # True once Gemini's first turnComplete fires
             task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done, hello_count, candidate_answered, pre_answer_buf, gemini_first_turn_done))
