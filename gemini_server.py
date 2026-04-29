@@ -296,6 +296,11 @@ async def stream(exotel_ws: WebSocket):
                     stream_sid_holder.append(stream_sid)
                     caller_phone = info.get("from", "") or info.get("caller", "")
                     log.info(f"Stream started — streamSid: {stream_sid}, caller: {caller_phone}")
+                    # Don't break — wait for first media event (candidate picked up)
+                    continue
+                if evt.get("event") == "media" and stream_sid_holder:
+                    # First media = candidate answered — trigger Kavitha now
+                    log.info("First media received — candidate answered, starting Kavitha")
                     break
                 log.warning(f"Unexpected event before start: {evt.get('event')}")
 
