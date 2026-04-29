@@ -296,9 +296,7 @@ async def stream(exotel_ws: WebSocket):
                     log.info(f"Stream started — streamSid: {stream_sid}, caller: {caller_phone}")
                     break
 
-            candidate_name = os.environ.get("TEST_CANDIDATE_NAME", "").strip()
-            name_info = f" The candidate's name is {candidate_name}." if candidate_name else ""
-            await gemini_ws.send(json.dumps({"realtimeInput": {"text": f"The call has just connected.{name_info} Begin the conversation now."}}))
+            # Trigger is sent by _exotel_to_gemini after ring-back ends (candidate answer detection)
 
             last_audio_ts = [0.0]
             last_speech_ts = [0.0]   # updated only on VAD activityStart/End — used by silence watchdog
@@ -358,10 +356,15 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
     SPEECH_START_CHUNKS = 12   # ~240ms of speech needed before activityStart — filters quick backchannels without blocking real speech
     SPEECH_END_CHUNKS   = 30   # ~600ms of silence needed before activityEnd
 
+    RINGBACK_RMS_THRESHOLD = 1000  # Exotel ring-back tone RMS ~5846 — well above this
+    ANSWER_QUIET_SECS = 3.0       # seconds of non-ring-back audio = candidate answered
+
     vad_state    = "silence"
     speech_chunks  = 0
     silence_chunks = 0
     audio_buffer   = []  # holds chunks during possible_speech
+    answered       = False
+    low_rms_start  = None
 
     try:
         async for raw in exotel_ws.iter_text():
@@ -379,6 +382,21 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                 last_audio_ts[0] = time.time()
                 raw_audio = base64.b64decode(audio_b64)
                 raw_audio, resample_state[0] = audioop.ratecv(raw_audio, 2, 1, 8000, 16000, resample_state[0])
+                rms = audioop.rms(raw_audio, 2)
+
+                if not answered:
+                    if rms > RINGBACK_RMS_THRESHOLD:
+                        low_rms_start = None  # still hearing ring-back tone
+                    else:
+                        if low_rms_start is None:
+                            low_rms_start = time.time()
+                        elif time.time() - low_rms_start >= ANSWER_QUIET_SECS:
+                            answered = True
+                            log.info(f"Candidate answered — ring-back ended ({ANSWER_QUIET_SECS}s of quiet)")
+                            candidate_name = os.environ.get("TEST_CANDIDATE_NAME", "").strip()
+                            name_info = f" The candidate's name is {candidate_name}." if candidate_name else ""
+                            await gemini_ws.send(json.dumps({"realtimeInput": {"text": f"The call has just connected.{name_info} Begin the conversation now."}}))
+                    continue
 
                 if not first_turn_done[0]:
                     continue  # block candidate audio until Kavitha's first message finishes
