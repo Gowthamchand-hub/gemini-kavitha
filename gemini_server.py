@@ -382,6 +382,7 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
     silence_chunks = 0
     audio_buffer   = []  # holds chunks during possible_speech
     low_rms_start  = None
+    seen_ringback  = False  # must see ring-back before counting quiet (avoids pre-ring silence)
 
     if candidate_answered is None:
         candidate_answered = [True]  # legacy: treat as already answered
@@ -410,9 +411,12 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
 
                 if not candidate_answered[0]:
                     if rms > RINGBACK_RMS_THRESHOLD:
-                        low_rms_start = None  # still hearing ring-back tone
+                        seen_ringback = True   # confirmed ring-back is active
+                        low_rms_start = None   # reset quiet timer while ring-back is on
                     else:
-                        if low_rms_start is None:
+                        if not seen_ringback:
+                            pass  # pre-ring-back PSTN silence — ignore entirely
+                        elif low_rms_start is None:
                             low_rms_start = time.time()
                         elif time.time() - low_rms_start >= ANSWER_QUIET_SECS:
                             candidate_answered[0] = True
