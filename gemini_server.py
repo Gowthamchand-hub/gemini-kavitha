@@ -299,7 +299,7 @@ async def stream(exotel_ws: WebSocket):
                     # Ring-back fires immediately at stream start (before candidate answers).
                     # Sleep 3s here + ~3s Gemini warmup = Kavitha speaks at ~T+6s,
                     # which lands just after typical 5s Indian ring-back.
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(2)
                     log.info("Ring-back wait done — starting Kavitha")
                     break
                 if evt.get("event") == "stop":
