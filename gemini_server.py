@@ -706,7 +706,8 @@ async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: li
         hello_count = [0]
 
     await asyncio.sleep(5)  # give call time to start
-    last_speech_ts[0] = time.time()  # reset baseline
+    if last_speech_ts[0] == 0.0:  # only set baseline if flush hasn't already set it
+        last_speech_ts[0] = time.time()
 
     try:
         while not call_completed[0]:
