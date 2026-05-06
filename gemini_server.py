@@ -311,10 +311,13 @@ async def stream(exotel_ws: WebSocket, outbound: str = "0"):
                     log.info(f"Stream started — streamSid: {stream_sid}, caller: {caller_phone}")
                     break
 
-            # Pre-generate Kavitha's greeting immediately — audio is buffered until candidate answers
             candidate_name = os.environ.get("TEST_CANDIDATE_NAME", "").strip()
             name_info = f" The candidate's name is {candidate_name}." if candidate_name else ""
-            await gemini_ws.send(json.dumps({"realtimeInput": {"text": f"The call has just connected.{name_info} Begin the conversation now."}}))
+            trigger_text = f"The call has just connected.{name_info} Begin the conversation now."
+
+            if not is_outbound:
+                # Inbound: candidate already on the line — trigger Kavitha immediately
+                await gemini_ws.send(json.dumps({"realtimeInput": {"text": trigger_text}}))
 
             last_audio_ts = [0.0]
             last_speech_ts = [0.0]   # updated only on VAD activityStart/End — used by silence watchdog
@@ -328,10 +331,11 @@ async def stream(exotel_ws: WebSocket, outbound: str = "0"):
             conversation_log = []     # full transcript: ["Kavitha: ...", "Candidate: ...", ...]
             hello_count      = [0]    # resets when candidate speaks — shared with watchdog
             kavitha_speaking = [False]  # True while Gemini audio is streaming — watchdog skips during this
-            candidate_answered = [not is_outbound]  # inbound: already answered; outbound: wait for ring-back to end
-            pre_answer_buf = []           # Kavitha's pre-generated audio held until candidate answers
-            gemini_first_turn_done = [False]  # True once Gemini's first turnComplete fires
-            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done, hello_count, candidate_answered, pre_answer_buf, gemini_first_turn_done))
+            # Outbound: wait for ring-back to end before triggering — Gemini is triggered by _exotel_to_gemini
+            candidate_answered = [not is_outbound]
+            pre_answer_buf = []
+            gemini_first_turn_done = [False]
+            task1 = asyncio.create_task(_exotel_to_gemini(exotel_ws, gemini_ws, stream_sid_holder, last_audio_ts, last_speech_ts, resample_state, first_turn_done, hello_count, candidate_answered, pre_answer_buf, gemini_first_turn_done, outbound_trigger_text=trigger_text if is_outbound else None))
             task2 = asyncio.create_task(_gemini_to_exotel(gemini_ws, exotel_ws, stream_sid_holder, last_audio_ts, last_speech_ts, nudge_pending, first_turn_done, session_data, call_completed, goodbye_spoken, pending_hangup, conversation_log, kavitha_speaking, candidate_answered, pre_answer_buf, gemini_first_turn_done))
             task3 = asyncio.create_task(_silence_watchdog(gemini_ws, first_turn_done, last_speech_ts, nudge_pending, call_completed, goodbye_spoken, hello_count, kavitha_speaking))
 
@@ -366,7 +370,7 @@ async def stream(exotel_ws: WebSocket, outbound: str = "0"):
         log.info("Stream session ended")
 
 
-async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, resample_state: list, first_turn_done: list, hello_count: list = None, candidate_answered: list = None, pre_answer_buf: list = None, gemini_first_turn_done: list = None):
+async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: list, last_audio_ts: list, last_speech_ts: list, resample_state: list, first_turn_done: list, hello_count: list = None, candidate_answered: list = None, pre_answer_buf: list = None, gemini_first_turn_done: list = None, outbound_trigger_text: str = None):
     """Candidate's voice -> Gemini with manual VAD.
 
     State machine:
@@ -423,22 +427,10 @@ async def _exotel_to_gemini(exotel_ws: WebSocket, gemini_ws, stream_sid_holder: 
                             low_rms_start = time.time()
                         elif time.time() - low_rms_start >= ANSWER_QUIET_SECS:
                             candidate_answered[0] = True
-                            log.info(f"Candidate answered — ring-back ended ({ANSWER_QUIET_SECS}s of quiet), {len(pre_answer_buf)} chunks buffered")
-                            if gemini_first_turn_done[0]:
-                                # Gemini already done → _gemini_to_exotel is blocked → safe to flush from here
-                                to_flush = list(pre_answer_buf)
-                                pre_answer_buf.clear()
-                                audio_secs = max(_pcm_duration(to_flush), 5.0)
-                                log.info(f"Flushing {len(to_flush)} chunks (~{audio_secs:.1f}s audio)")
-                                for chunk in to_flush:
-                                    try:
-                                        await exotel_ws.send_text(chunk)
-                                    except Exception:
-                                        break
-                                if not first_turn_done[0]:
-                                    first_turn_done[0] = True
-                                    last_speech_ts[0] = time.time() + audio_secs
-                            # Else: Gemini still generating → _gemini_to_exotel will flush at turnComplete
+                            log.info(f"Candidate answered — ring-back ended ({ANSWER_QUIET_SECS}s of quiet) — triggering Kavitha")
+                            if outbound_trigger_text:
+                                # Trigger Gemini NOW (after candidate answers) — audio goes directly, no buffering
+                                await gemini_ws.send(json.dumps({"realtimeInput": {"text": outbound_trigger_text}}))
                     continue
 
                 if not first_turn_done[0]:
@@ -575,9 +567,8 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                         "streamSid": stream_sid,
                         "media": {"payload": audio_b64},
                     })
-                    if not candidate_answered[0] or pre_answer_buf:
-                        # Buffer: not yet answered, OR answered but first turn still flushing at turnComplete
-                        pre_answer_buf.append(msg)
+                    if not candidate_answered[0]:
+                        pass  # outbound: candidate not answered yet — Gemini shouldn't be generating, but guard anyway
                     else:
                         try:
                             await exotel_ws.send_text(msg)
@@ -643,25 +634,9 @@ async def _gemini_to_exotel(gemini_ws, exotel_ws: WebSocket, stream_sid_holder: 
                 if kavitha_speaking is not None:
                     kavitha_speaking[0] = False
                 nudge_pending[0] = False
-                if candidate_answered[0]:
-                    if pre_answer_buf:
-                        to_flush = list(pre_answer_buf)
-                        pre_answer_buf.clear()
-                        audio_secs = max(_pcm_duration(to_flush), 5.0)
-                        for buffered in to_flush:
-                            try:
-                                await exotel_ws.send_text(buffered)
-                            except Exception:
-                                pass
-                        first_turn_done[0] = True
-                        last_speech_ts[0] = time.time() + audio_secs
-                    elif not first_turn_done[0]:
-                        # Pre-answer buf empty but first turn not done — unlikely, handle safely
-                        first_turn_done[0] = True
-                        last_speech_ts[0] = time.time() + 5.0
-                    # else: _exotel_to_gemini already flushed and set last_speech_ts — don't reset
-                else:
-                    gemini_first_turn_done[0] = True  # Kavitha done — waiting for candidate to answer
+                if not first_turn_done[0]:
+                    first_turn_done[0] = True
+                    last_speech_ts[0] = time.time() + 5.0
                 if candidate_buf:
                     text = ''.join(candidate_buf)
                     log.info(f"Candidate: {text}")
