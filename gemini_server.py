@@ -20,7 +20,7 @@ import audioop
 import struct
 import time
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response, JSONResponse
 from dotenv import load_dotenv
@@ -732,6 +732,60 @@ async def _silence_watchdog(gemini_ws, first_turn_done: list, last_speech_ts: li
 # /status — Exotel call status callback
 # ---------------------------------------------------------------------------
 
+RETRY_HOURS   = 3
+MAX_ATTEMPTS  = 3
+QUEUE_SHEET   = "call-queue"
+COL_PHONE     = 0
+COL_STATUS    = 2
+COL_ATTEMPT   = 3
+COL_LAST      = 4
+COL_RETRY     = 5
+COL_SID       = 6
+
+def _update_no_answer_sync(phone: str, sid: str):
+    """Find candidate in call-queue by phone or SID and update retry state."""
+    try:
+        creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        if not creds_json:
+            return
+        creds_dict = json.loads(creds_json)
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_key(SHEET_ID)
+        try:
+            sheet = spreadsheet.worksheet(QUEUE_SHEET)
+        except gspread.exceptions.WorksheetNotFound:
+            return  # no call-queue tab yet — skip
+
+        rows = sheet.get_all_values()
+        for i, row in enumerate(rows[1:], start=2):
+            if len(row) < 3:
+                continue
+            row_phone = row[COL_PHONE].strip()
+            row_sid   = row[COL_SID].strip() if len(row) > COL_SID else ""
+            if row_phone != phone and row_sid != sid:
+                continue
+
+            attempt = int(row[COL_ATTEMPT]) if len(row) > COL_ATTEMPT and row[COL_ATTEMPT].isdigit() else 0
+            attempt += 1
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            if attempt >= MAX_ATTEMPTS:
+                status_str = "Not Reachable - Final"
+                retry_str  = ""
+            else:
+                status_str = f"Not Reachable - Attempt {attempt}"
+                retry_time = datetime.now() + timedelta(hours=RETRY_HOURS)
+                retry_str  = retry_time.strftime("%Y-%m-%d %H:%M:%S")
+
+            sheet.update(f"C{i}:G{i}", [[status_str, attempt, now_str, retry_str, sid]])
+            log.info(f"No-answer: {phone} — {status_str}, retry at {retry_str or 'N/A'}")
+            return
+    except Exception as e:
+        log.error(f"_update_no_answer_sync error: {e}")
+
+
 @app.api_route("/status", methods=["GET", "POST"])
 async def status(request: Request):
     if request.method == "POST":
@@ -740,9 +794,18 @@ async def status(request: Request):
     else:
         data = dict(request.query_params)
 
-    log.info(f"Call {data.get('CallSid', 'unknown')} ended — "
-             f"status: {data.get('Status', 'unknown')}, "
-             f"duration: {data.get('Duration', '0')}s")
+    call_sid    = data.get("CallSid", "unknown")
+    call_status = data.get("Status", "unknown")
+    duration    = data.get("Duration", "0")
+    phone       = data.get("To", "")
+
+    log.info(f"Call {call_sid} ended — status: {call_status}, duration: {duration}s, phone: {phone}")
+
+    # Handle no-answer / busy / failed — schedule retry in call-queue sheet
+    if call_status in ("no-answer", "busy", "failed", "canceled") and phone:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _update_no_answer_sync, phone, call_sid)
+
     return Response(status_code=200)
 
 

@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
 """
-Bulk outbound calls via Exotel -> Kavitha AI agent.
+Bulk outbound calls via Exotel → Kavitha AI agent.
+
+Reads pending candidates from the call-queue Google Sheet tab,
+dials them one by one, and updates their status in the sheet.
 
 Usage:
-  python3 bulk_call.py candidates.csv              # call all simultaneously
-  python3 bulk_call.py candidates.csv --batch 5    # call 5 at a time
-
-CSV format:
-  name,phone
-  Pooja,+919345473240
-  Ravi,+918297084848
+  python3 bulk_call.py                    # call all pending
+  python3 bulk_call.py --batch 5          # call 5 at a time (parallel)
+  python3 bulk_call.py --dry-run          # preview without dialing
 """
 
 import os
 import sys
-import csv
+import json
 import time
 import threading
-import requests
+import argparse
+from datetime import datetime
 from dotenv import load_dotenv
+import requests
+import gspread
+from google.oauth2.service_account import Credentials
 
 load_dotenv()
 
@@ -26,143 +29,160 @@ EXOTEL_API_KEY      = os.getenv("EXOTEL_API_KEY")
 EXOTEL_API_TOKEN    = os.getenv("EXOTEL_API_TOKEN")
 EXOTEL_ACCOUNT_SID  = os.getenv("EXOTEL_ACCOUNT_SID", "supernan1")
 EXOTEL_PHONE_NUMBER = os.getenv("EXOTEL_PHONE_NUMBER")
-FLOW_URL            = "http://my.exotel.com/supernan1/exoml/start_voice/1218626"
-STATUS_URL          = "https://web-production-966f.up.railway.app/status"
-EXOTEL_API_URL      = f"https://api.exotel.com/v1/Accounts/{EXOTEL_ACCOUNT_SID}/Calls/connect"
+SERVER_BASE_URL     = os.getenv("SERVER_WS_BASE_URL", "").replace("wss://", "https://").replace("ws://", "http://")
 
-POST_CALL_BUFFER = 30  # seconds to wait after call ends before next call
+SHEET_ID         = os.getenv("GOOGLE_SHEET_ID", "112yETKsk2aaM6knc5Bk8ZUFd-IHK0bD_puMOKrDz7XQ")
+QUEUE_SHEET_NAME = "call-queue"
+EXOTEL_API_URL   = f"https://api.exotel.com/v1/Accounts/{EXOTEL_ACCOUNT_SID}/Calls/connect"
+
+MAX_ATTEMPTS  = 3
+CALL_GAP_SECS = 5   # seconds between each outbound dial
+
+# Sheet column indices (0-based)
+COL_PHONE   = 0
+COL_NAME    = 1
+COL_STATUS  = 2
+COL_ATTEMPT = 3
+COL_LAST    = 4
+COL_RETRY   = 5
+COL_SID     = 6
 
 
-def normalize_number(phone):
-    phone = phone.strip().replace(" ", "").replace("-", "")
-    if phone.startswith("+91"):
-        return "0" + phone[3:]
-    elif phone.startswith("91") and len(phone) == 12:
-        return "0" + phone[2:]
-    return phone
+def get_queue_sheet():
+    creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    if not creds_json:
+        print("[ERROR] GOOGLE_CREDENTIALS_JSON not set")
+        sys.exit(1)
+    creds_dict = json.loads(creds_json)
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    client = gspread.authorize(creds)
+    return client.open_by_key(SHEET_ID).worksheet(QUEUE_SHEET_NAME)
 
 
-def make_call(name, phone):
-    to_number = normalize_number(phone)
-    from_number = EXOTEL_PHONE_NUMBER.replace("-", "")
+def get_pending_candidates(sheet) -> list[dict]:
+    rows = sheet.get_all_values()
+    if len(rows) <= 1:
+        return []
+    now = datetime.now()
+    pending = []
+    for i, row in enumerate(rows[1:], start=2):  # row index in sheet (1-based, header is row 1)
+        if len(row) < 3:
+            continue
+        status  = row[COL_STATUS].strip()
+        attempt = int(row[COL_ATTEMPT]) if len(row) > COL_ATTEMPT and row[COL_ATTEMPT].isdigit() else 0
+        retry_time_str = row[COL_RETRY].strip() if len(row) > COL_RETRY else ""
+
+        # Skip if done or currently calling or max attempts reached
+        if status in ("Calling", "Not Reachable - Final") or attempt >= MAX_ATTEMPTS:
+            continue
+        # Only include Pending or retries where retry time has passed
+        if status == "Pending":
+            pending.append({"row": i, "phone": row[COL_PHONE], "name": row[COL_NAME], "attempt": attempt})
+        elif "Not Reachable - Attempt" in status and retry_time_str:
+            try:
+                retry_time = datetime.strptime(retry_time_str, "%Y-%m-%d %H:%M:%S")
+                if now >= retry_time:
+                    pending.append({"row": i, "phone": row[COL_PHONE], "name": row[COL_NAME], "attempt": attempt})
+            except ValueError:
+                pass
+    return pending
+
+
+def dial(phone: str, name: str) -> str | None:
+    answer_url = f"{SERVER_BASE_URL.rstrip('/')}/answer?outbound=1"
+    status_url = f"{SERVER_BASE_URL.rstrip('/')}/status"
 
     payload = {
-        "From":           to_number,
-        "To":             from_number,
-        "CallerId":       from_number,
-        "Url":            FLOW_URL,
-        "StatusCallback": STATUS_URL,
-        "Record":         "false",
+        "From":                      EXOTEL_PHONE_NUMBER,
+        "To":                        phone,
+        "CallerId":                  EXOTEL_PHONE_NUMBER,
+        "Url":                       answer_url,
+        "StatusCallback":            status_url,
+        "StatusCallbackEvents[0]":   "terminal",
+        "Record":                    "false",
     }
 
-    response = requests.post(
-        EXOTEL_API_URL,
-        data=payload,
-        auth=(EXOTEL_API_KEY, EXOTEL_API_TOKEN),
-        timeout=30,
-    )
-
-    if not response.ok:
-        print(f"  [FAIL] {name} ({to_number}) — {response.status_code}: {response.text[:200]}")
+    try:
+        resp = requests.post(
+            EXOTEL_API_URL,
+            data=payload,
+            auth=(EXOTEL_API_KEY, EXOTEL_API_TOKEN),
+            timeout=30,
+        )
+        if not resp.ok:
+            print(f"  [FAIL] {name} ({phone}) — {resp.status_code}: {resp.text[:200]}")
+            return None
+        call_data = resp.json().get("Call", {})
+        sid = call_data.get("Sid", "")
+        print(f"  [DIALED] {name} ({phone}) — SID: {sid}")
+        return sid
+    except Exception as e:
+        print(f"  [ERROR] {name} ({phone}) — {e}")
         return None
 
-    # Extract call SID
-    import re
-    sid_match = re.search(r"<Sid>(.*?)</Sid>", response.text)
-    sid = sid_match.group(1) if sid_match else None
-    print(f"  [OK] Called {name} ({to_number}) — SID: {sid}")
-    return sid
 
-
-def wait_for_call_to_end(sid, poll_interval=10, max_wait=600):
-    """Poll Exotel until call is completed or max_wait reached."""
-    if not sid:
-        return
-    url = f"https://api.exotel.com/v1/Accounts/{EXOTEL_ACCOUNT_SID}/Calls/{sid}"
-    waited = 0
-    while waited < max_wait:
-        time.sleep(poll_interval)
-        waited += poll_interval
-        try:
-            resp = requests.get(url, auth=(EXOTEL_API_KEY, EXOTEL_API_TOKEN), timeout=10)
-            import re
-            status_match = re.search(r"<Status>(.*?)</Status>", resp.text)
-            status = status_match.group(1) if status_match else "unknown"
-            print(f"  Call status: {status} ({waited}s elapsed)")
-            if status in ("completed", "failed", "busy", "no-answer", "canceled"):
-                return
-        except Exception as e:
-            print(f"  Poll error: {e}")
-
-
-def load_candidates(filepath):
-    candidates = []
-    with open(filepath, newline="", encoding="utf-8") as f:
-        # Detect if it's just numbers or has names
-        sample = f.read(200)
-        f.seek(0)
-        has_comma = "," in sample
-
-        if has_comma:
-            reader = csv.reader(f)
-            for i, row in enumerate(reader):
-                if not row:
-                    continue
-                if i == 0 and not any(c.isdigit() for c in row[0]):
-                    continue  # skip header
-                if len(row) >= 2:
-                    candidates.append((row[0].strip(), row[1].strip()))
-                elif len(row) == 1:
-                    candidates.append((f"Candidate {i+1}", row[0].strip()))
-        else:
-            for i, line in enumerate(f):
-                line = line.strip()
-                if line:
-                    candidates.append((f"Candidate {i+1}", line))
-
-    return candidates
-
-
-def call_and_wait(name, phone, index, total):
-    print(f"  [{index}/{total}] Calling {name} — {phone}")
-    sid = make_call(name, phone)
-    if sid:
-        wait_for_call_to_end(sid)
-        print(f"  [{index}/{total}] {name} — call ended.")
+def update_row_calling(sheet, row_index: int, sid: str):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    sheet.update(f"C{row_index}:G{row_index}", [["Calling", "", now_str, "", sid]])
 
 
 def main():
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("csv", help="CSV file with name,phone columns")
-    parser.add_argument("--batch", type=int, default=None, help="Max parallel calls at once (default: all at once)")
+    parser = argparse.ArgumentParser(description="Dial pending candidates from call-queue sheet")
+    parser.add_argument("--batch",   type=int, default=1, help="Parallel calls at a time (default: 1)")
+    parser.add_argument("--dry-run", action="store_true",  help="Preview candidates without dialing")
     args = parser.parse_args()
 
-    if not os.path.exists(args.csv):
-        print(f"[ERROR] File not found: {args.csv}")
+    if not EXOTEL_API_KEY or not EXOTEL_API_TOKEN:
+        print("[ERROR] EXOTEL_API_KEY / EXOTEL_API_TOKEN not set in .env")
+        sys.exit(1)
+    if not SERVER_BASE_URL:
+        print("[ERROR] SERVER_WS_BASE_URL not set in .env")
         sys.exit(1)
 
-    candidates = load_candidates(args.csv)
-    total = len(candidates)
-    batch = args.batch or total
+    print("Reading call-queue sheet...")
+    sheet     = get_queue_sheet()
+    pending   = get_pending_candidates(sheet)
+    total     = len(pending)
 
-    print(f"\nLoaded {total} candidates — calling {batch} at a time\n" + "-" * 40)
+    if total == 0:
+        print("No pending candidates to call.")
+        return
 
+    print(f"Found {total} candidates to call\n" + "-" * 40)
+
+    if args.dry_run:
+        for c in pending:
+            print(f"  [DRY RUN] {c['name']} ({c['phone']}) — attempt {c['attempt'] + 1}")
+        return
+
+    lock = threading.Lock()
+
+    def call_one(candidate, index):
+        name    = candidate["name"]
+        phone   = candidate["phone"]
+        row_idx = candidate["row"]
+        print(f"[{index}/{total}] Calling {name} ({phone})...")
+        sid = dial(phone, name)
+        with lock:
+            update_row_calling(sheet, row_idx, sid or "")
+
+    # Dial in batches
+    batch = args.batch
     for start in range(0, total, batch):
-        chunk = candidates[start:start + batch]
+        chunk   = pending[start:start + batch]
         threads = []
-        for i, (name, phone) in enumerate(chunk, start + 1):
-            t = threading.Thread(target=call_and_wait, args=(name, phone, i, total))
+        for i, candidate in enumerate(chunk, start + 1):
+            t = threading.Thread(target=call_one, args=(candidate, i))
             t.start()
             threads.append(t)
+            time.sleep(CALL_GAP_SECS)
         for t in threads:
             t.join()
-        if start + batch < total:
-            print(f"  Batch done. Waiting {POST_CALL_BUFFER}s before next batch...")
-            time.sleep(POST_CALL_BUFFER)
 
-    print("\n" + "-" * 40)
-    print(f"Done. Called {total} candidates.")
+    print("-" * 40)
+    print(f"Done. Dialed {total} candidates.")
+    print("Track results in the call-queue sheet.")
 
 
 if __name__ == "__main__":
